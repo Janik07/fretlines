@@ -1,0 +1,79 @@
+# Корень uv-воркспейса: общий lock-файл и настройки инструментов для всех Python-пакетов.
+
+[project]
+name = "fretlines"
+version = "0.2.0"
+description = "Гитарный аранжировщик для ансамбля"
+requires-python = "==3.11.*"
+dependencies = ["fretlines-api", "fretlines-worker", "fretlines-arranger"]
+
+[tool.uv]
+package = false
+# Windows и Linux x86-64. PyTorch по умолчанию — CPU-сборка (около 120 МБ);
+# CUDA-сборку для видеокарт NVIDIA ставит gpu.bat поверх неё.
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.workspace]
+members = ["arranger", "backend", "worker"]
+
+[tool.uv.sources]
+fretlines-api = { workspace = true }
+fretlines-worker = { workspace = true }
+fretlines-arranger = { workspace = true }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.16",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["arranger", "backend", "worker"]
+extend-exclude = ["frontend", "storage", ".tools", ".models"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "B", "UP", "SIM", "C4", "RET", "PTH", "PT", "ANN", "TID", "RUF",
+]
+# RUF001–003 ругаются на кириллицу в строках и комментариях — у нас она по делу.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["ANN401"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["arranger/arranger", "backend/fretlines_api", "worker/fretlines_worker"]
+mypy_path = ["arranger", "backend", "worker"]
+explicit_package_bases = true
+
+# У ML-библиотек нет аннотаций типов.
+[[tool.mypy.overrides]]
+module = [
+    "beat_this.*", "demucs.*", "imageio_ffmpeg.*", "librosa.*", "scipy.*", "soundfile.*",
+    "torchaudio.*", "torchcrepe.*", "yt_dlp.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["arranger/tests", "backend/tests", "worker/tests"]
+# Импорт по умолчанию (prepend): в режиме importlib pytest подменяет пакет `arranger`
+# одноимённой папкой проекта. Поэтому имена тестовых файлов должны быть уникальны.
+addopts = ["-ra", "-m", "not slow"]
+markers = ["slow: тяжёлые тесты с ML-моделями (запуск: pytest -m slow)"]
