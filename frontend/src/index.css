@@ -1,0 +1,443 @@
+@import "tailwindcss";
+
+/* ─── Дизайн-токены (SPEC.md §2.2) ─────────────────────────────────────────
+   Ночная студия: глубокий чёрный, мягкий белый, зерно. Тёмная тема — по умолчанию. */
+
+:root {
+  color-scheme: dark;
+
+  --bg: #0a0a0b;
+  --surface: #141416;
+  --surface-2: #1d1d20;
+  --surface-3: #26262a;
+  --line: #2a2a2e;
+  --line-strong: #3a3a3f;
+  --text: #ecebe7;
+  --text-dim: #8c8b87;
+  --accent: #f5f3ee;
+  --on-accent: #0a0a0b;
+  --glow: rgba(255, 255, 255, 0.08);
+  --danger: #c9675f;
+
+  --grain-opacity: 0.05;
+  --vignette: rgba(0, 0, 0, 0.66);
+  --haze: rgba(255, 255, 255, 0.075);
+  --shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.8);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f2f1ee;
+  --surface: #ffffff;
+  --surface-2: #e8e7e3;
+  --surface-3: #dcdbd6;
+  --line: #d2d0ca;
+  --line-strong: #b9b7b0;
+  --text: #111112;
+  --text-dim: #5e5d59;
+  --accent: #0a0a0b;
+  --on-accent: #f5f3ee;
+  --glow: rgba(0, 0, 0, 0.06);
+  --danger: #a1453e;
+
+  --grain-opacity: 0.06;
+  --vignette: rgba(0, 0, 0, 0.1);
+  --haze: rgba(255, 255, 255, 0.95);
+  --shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.35);
+}
+
+/* Партии различаются «количеством света» и фактурой линии, а не цветом. */
+:root {
+  --part-melody: var(--accent);
+  --part-bass: color-mix(in srgb, var(--accent) 60%, var(--bg));
+  --part-rhythm: color-mix(in srgb, var(--accent) 40%, var(--bg));
+  --part-pad: color-mix(in srgb, var(--accent) 25%, var(--bg));
+  --part-perc: var(--accent);
+}
+
+@theme {
+  --color-*: initial;
+  --font-*: initial;
+  --text-*: initial;
+
+  /* Шрифты: узкий гротеск для заголовков и цифр, тот же род для текста, моно — для табов. */
+  --font-display: "Sofia Sans Extra Condensed Variable", "Arial Narrow", sans-serif;
+  --font-sans: "Sofia Sans Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+
+  /* Шкала SPEC §2.3 плюс афишный размер для главного заголовка */
+  --text-caption: 12px;
+  --text-caption--line-height: 1.45;
+  --text-small: 14px;
+  --text-small--line-height: 1.5;
+  --text-body: 16px;
+  --text-body--line-height: 1.55;
+  --text-lead: 20px;
+  --text-lead--line-height: 1.45;
+  --text-title: 28px;
+  --text-title--line-height: 1.1;
+  --text-display: 44px;
+  --text-display--line-height: 0.95;
+  --text-hero: 72px;
+  --text-hero--line-height: 0.9;
+  --text-poster: clamp(76px, 10.5vw, 168px);
+  --text-poster--line-height: 0.84;
+
+  --ease-film: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-glow: var(--glow);
+  --color-danger: var(--danger);
+}
+
+@layer base {
+  html {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: "kern", "liga";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--bg);
+  }
+
+  ::selection {
+    background-color: var(--accent);
+    color: var(--bg);
+  }
+
+  :focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 6px var(--glow);
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  .film-grain {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Свет сверху и тень по краям — под контентом, чтобы не съедать контраст текста. */
+  .stage-light {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .stage-light::before,
+  .stage-light::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .stage-light::before {
+    background:
+      radial-gradient(55% 60% at 72% 8%, var(--haze), transparent 70%),
+      radial-gradient(40% 40% at 10% 90%, color-mix(in srgb, var(--haze) 50%, transparent), transparent 70%);
+  }
+
+  .stage-light::after {
+    background: radial-gradient(125% 95% at 50% 40%, transparent 50%, var(--vignette) 100%);
+  }
+
+  /* Подписи-метки: маленькие капители с разрядкой. */
+  .eyebrow {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .outline-text {
+    color: transparent;
+    -webkit-text-stroke: 1.5px var(--text);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    height: 48px;
+    padding: 0 22px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 16px;
+    transition:
+      transform 250ms var(--ease-film),
+      background-color 250ms var(--ease-film),
+      border-color 250ms var(--ease-film),
+      color 250ms var(--ease-film),
+      box-shadow 250ms var(--ease-film);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translateY(1px) scale(0.99);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+    box-shadow: 0 0 0 0 var(--glow);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 0 0 8px var(--glow);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.35;
+  }
+
+  .btn-ghost {
+    border: 1px solid var(--line-strong);
+    color: var(--text);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    border-color: var(--text-dim);
+    background: var(--surface-2);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    color: var(--text);
+    transition:
+      background-color 250ms var(--ease-film),
+      color 250ms var(--ease-film),
+      opacity 250ms var(--ease-film);
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+
+  .icon-btn[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .icon-btn:disabled {
+    opacity: 0.35;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+  }
+
+  .field {
+    height: 44px;
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    padding: 0 14px;
+    color: var(--text);
+    transition: border-color 250ms var(--ease-film);
+  }
+
+  .field::placeholder {
+    color: var(--text-dim);
+  }
+
+  .field:hover {
+    border-color: var(--text-dim);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-dim);
+    transition:
+      background-color 250ms var(--ease-film),
+      color 250ms var(--ease-film),
+      border-color 250ms var(--ease-film);
+  }
+
+  .chip[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .chip:hover:not([aria-pressed="true"]) {
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ─── Движение (SPEC §2.4) ──────────────────────────────────────────────── */
+
+@keyframes breathe {
+  from {
+    transform: scaleY(0.7);
+    opacity: 0.65;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes string-shiver {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-0.6px);
+  }
+  75% {
+    transform: translateY(0.6px);
+  }
+}
+
+@keyframes playhead {
+  from {
+    left: 4%;
+  }
+  to {
+    left: 96%;
+  }
+}
+
+.wave-breathe {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: breathe 5s ease-in-out infinite alternate;
+}
+
+.light-sweep {
+  animation: sweep 2.8s var(--ease-film) infinite;
+}
+
+.pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+.strings-active line {
+  animation: string-shiver 120ms linear infinite;
+}
+
+.playhead {
+  animation: playhead 9s linear infinite;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 400ms;
+  animation-timing-function: var(--ease-film);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-breathe,
+  .light-sweep,
+  .pulse-soft,
+  .strings-active line,
+  .playhead {
+    animation: none;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+/* ─── alphaTab: курсор и подсветка играемых нот ─────────────────────────── */
+
+.at-surface {
+  color: var(--text);
+}
+
+.at-cursor-bar {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.at-selection div {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.at-cursor-beat {
+  background: var(--accent);
+  width: 2px;
+  box-shadow: 0 0 14px 2px var(--glow);
+}
+
+.at-highlight * {
+  fill: var(--accent);
+  stroke: var(--accent);
+}

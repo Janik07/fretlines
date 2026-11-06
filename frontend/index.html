@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0A0A0B" />
+    <meta name="description" content="Fretlines — разложи песню на гитарные партии для 1–4 игроков." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Fretlines</title>
+    <script>
+      // Тему ставим до первой отрисовки, чтобы светлая не мигала тёмной.
+      try {
+        if (localStorage.getItem("fretlines.theme") === "light") {
+          document.documentElement.dataset.theme = "light";
+        }
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
