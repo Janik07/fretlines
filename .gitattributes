@@ -1,0 +1,14 @@
+# LF везде: файлы уезжают в Linux-контейнеры, CRLF там ломает скрипты и конфиги.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.m4a binary
+
+# Скрипты Windows — с CRLF.
+*.bat text eol=crlf
+*.ps1 text eol=crlf

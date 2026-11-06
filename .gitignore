@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Локальная конфигурация
+.env
+
+# Данные пользователя: песни, стемы, разборы, база
+storage/*
+!storage/.gitkeep
+
+# Редакторы и ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Инструменты и модели, которые start.bat кладёт в папку проекта
+.tools/
+.models/
+
+# Шрифт нот и SoundFont копирует плагин alphaTab при сборке
+frontend/public/font/
+frontend/public/soundfont/
