@@ -12,7 +12,7 @@ import { applyTone, DRY_PROGRAM, isTone, type Tone } from "./tone";
 const RATE = 44_100;
 
 export interface RenderedPart {
-  key: string; // от чего зависит звук: текст партитуры, номер партии, тембр
+  key: string; // от чего зависит звук: текст партитуры, номер партии, тембр, банк звуков
   buffer: AudioBuffer;
 }
 
@@ -72,6 +72,7 @@ export interface RenderJob {
   parts: { index: number; tone: string }[];
   tex: string;
   beat: number; // длина доли в секундах — под неё эхо в тембрах с дилеем
+  bank: "hq" | "base"; // каким банком звуков рендерили: большой приходит позже — тогда заново
 }
 
 /** Рендер всех партий; уже готовые (тот же текст и тембр) берутся из кэша. */
@@ -86,7 +87,7 @@ export async function renderParts(
   const total = job.parts.length;
   for (const [n, part] of job.parts.entries()) {
     const tone: Tone = isTone(part.tone) ? part.tone : "clean";
-    const key = `${String(hash(job.tex))}:${String(part.index)}:${tone}`;
+    const key = `${String(hash(job.tex))}:${String(part.index)}:${tone}:${job.bank}`;
     const cached = cache.get(key);
     if (cached) {
       out.push(cached);

@@ -6,8 +6,9 @@ import { mixToWav, renderParts, type RenderedPart } from "./render";
 import type { AlphaTabControls } from "./useAlphaTab";
 
 /**
- * Студийный звук партий: рендер после каждой смены партитуры или тембров, сведение — после
- * каждого движения микшера (без нового рендера). Пока звук готовится, играет встроенный синтезатор.
+ * Студийный звук партий: рендер после каждой смены партитуры, тембров или банка звуков,
+ * сведение — после каждого движения микшера (без нового рендера). Пока звук готовится, играет
+ * встроенный синтезатор.
  */
 
 export interface StudioSound {
@@ -51,6 +52,7 @@ export function useStudioSound(
       const job = {
         tex,
         beat: 60 / Math.max(arrangement.tempo, 1),
+        bank: view.hqSound ? ("hq" as const) : ("base" as const),
         parts: arrangement.parts.map((p, index) => ({ index, tone: p.tone })),
       };
       renderParts(api, job, cache.current, setProgress, () => cancelled)
@@ -70,9 +72,10 @@ export function useStudioSound(
       cancelled = true;
       window.clearTimeout(timer);
     };
-    // controls пересоздаётся каждый рендер; важны текст партитуры, тембры и готовность плеера.
+    // controls пересоздаётся каждый рендер; важны текст партитуры, тембры, готовность плеера
+    // и банк звуков: большой приходит позже маленького — тогда партии рендерятся заново.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, tex, tones, scoreReady]);
+  }, [enabled, tex, tones, scoreReady, view.hqSound]);
 
   const levels = useMemo(() => gains(mix, parts?.length ?? 0).join(","), [mix, parts]);
   // Сведение — производное от партий и микшера: пересобирается только когда они меняются.

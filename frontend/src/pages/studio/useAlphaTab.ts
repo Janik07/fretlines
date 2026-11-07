@@ -384,11 +384,41 @@ export function useAlphaTab(
  * Сервер скачивает его сам; пока его нет, играет маленький встроенный банк. Подменяем, когда
  * плеер стоит, — чтобы не оборвать звук посреди игры.
  */
+const SOUNDFONT_URL = "/api/soundfont";
+const SOUNDFONT_STORE = "fretlines-soundfont-v1";
+
+/**
+ * Большой банк звуков (40 МБ): из хранилища браузера, иначе с сервера — и сразу туда.
+ * HTTP-кэш такой файл через облачный прокси не держит, а по медленному каналу он качается
+ * минуты; длинную загрузку канал иногда рвёт — тогда пробуем ещё раз.
+ */
+async function fetchSoundFont(): Promise<Uint8Array<ArrayBuffer> | null> {
+  let store: Cache | null;
+  try {
+    store = await caches.open(SOUNDFONT_STORE);
+    const hit = await store.match(SOUNDFONT_URL);
+    if (hit) return new Uint8Array(await hit.arrayBuffer());
+  } catch {
+    store = null; // нет хранилища (приватный режим, не https) — просто качаем
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(SOUNDFONT_URL);
+      if (!response.ok) return null; // сервер ещё сам качает банк
+      const data = new Uint8Array(await response.arrayBuffer());
+      await store?.put(SOUNDFONT_URL, new Response(data)).catch(() => undefined);
+      return data;
+    } catch {
+      // обрыв — ещё одна попытка
+    }
+  }
+  return null;
+}
+
 async function loadBetterSound(api: alphaTab.AlphaTabApi): Promise<boolean> {
   try {
-    const response = await fetch("/api/soundfont");
-    if (!response.ok) return false;
-    const data = new Uint8Array(await response.arrayBuffer());
+    const data = await fetchSoundFont();
+    if (!data) return false;
     for (let i = 0; i < 600 && api.playerState === alphaTab.synth.PlayerState.Playing; i++) {
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
