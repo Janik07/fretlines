@@ -53,11 +53,39 @@ INSTRUMENT_LABELS: dict[InstrumentKind, str] = {
 # Электро-тембры названы как пресеты смарт-гитар (Enya Inspire: Clean, Crunch, Overdrive, Lead),
 # чтобы было понятно, что включить на своей гитаре.
 Tone = Literal[
-    "auto", "steel", "nylon", "clean", "crunch", "drive", "lead", "jazz", "finger", "pick"
+    "auto",
+    "steel",
+    "nylon",
+    "clean",
+    "funk",
+    "chorus",
+    "ambient",
+    "jazz",
+    "blues",
+    "crunch",
+    "drive",
+    "fuzz",
+    "lead",
+    "metal",
+    "finger",
+    "pick",
 ]
 TONES: dict[InstrumentKind, tuple[Tone, ...]] = {
     "acoustic": ("steel", "nylon"),
-    "electric": ("clean", "crunch", "drive", "lead", "jazz"),
+    # От чистого к самому злому перегрузу — так их и показываем в списке.
+    "electric": (
+        "clean",
+        "funk",
+        "chorus",
+        "ambient",
+        "jazz",
+        "blues",
+        "crunch",
+        "drive",
+        "fuzz",
+        "lead",
+        "metal",
+    ),
     "bass": ("finger", "pick"),
 }
 TONE_LABELS: dict[Tone, str] = {
@@ -65,32 +93,45 @@ TONE_LABELS: dict[Tone, str] = {
     "steel": "Стальные струны",
     "nylon": "Нейлон",
     "clean": "Чистый (Clean)",
+    "funk": "Фанк (чистый, компрессор)",
+    "chorus": "Хорус (Chorus)",
+    "ambient": "Эмбиент (дилей и ревер)",
+    "jazz": "Джаз",
+    "blues": "Блюз (лёгкий перегруз)",
     "crunch": "Кранч (Crunch)",
     "drive": "Перегруз (Overdrive)",
+    "fuzz": "Фузз (Fuzz)",
     "lead": "Соло (Lead)",
-    "jazz": "Джаз",
+    "metal": "Метал (Hi-Gain)",
     "finger": "Пальцами",
     "pick": "Медиатором",
 }
-# Программа General MIDI для встроенного синтезатора. Студийный звук (усилитель, кабинет)
-# интерфейс собирает сам из чистой гитары — см. frontend/src/pages/studio/tone.ts.
+# Программа General MIDI для встроенного синтезатора. Студийный звук (усилитель, кабинет,
+# эффекты) интерфейс собирает сам из чистой гитары — см. frontend/src/pages/studio/tone.ts.
 TONE_PROGRAMS: dict[Tone, int] = {
     "steel": 25,
     "nylon": 24,
     "clean": 27,
+    "funk": 27,
+    "chorus": 27,
+    "ambient": 27,
+    "jazz": 26,
+    "blues": 29,
     "crunch": 29,
     "drive": 29,
+    "fuzz": 30,
     "lead": 30,
-    "jazz": 26,
+    "metal": 30,
     "finger": 33,
     "pick": 34,
 }
 # С перегрузом аккорды берут пауэр-аккордами (основной тон + квинта): терции «грязнят».
-DISTORTED: frozenset[Tone] = frozenset({"drive", "lead"})
+DISTORTED: frozenset[Tone] = frozenset({"drive", "fuzz", "lead", "metal"})
 
 
-def resolve_tone(kind: InstrumentKind, tone: str, heard: str = "") -> Tone:
-    """Звук игрока; heard — что разбор услышал в записи: acoustic, clean или distorted."""
+def resolve_tone(kind: InstrumentKind, tone: str, heard: str = "", sound: str = "") -> Tone:
+    """Звук игрока. heard — какая гитара в записи (acoustic, clean, distorted); sound — какой
+    именно электро-тембр подобрал разбор (funk, metal…), пусто — старый разбор."""
     for known in TONES[kind]:
         if tone == known:
             return known
@@ -98,6 +139,9 @@ def resolve_tone(kind: InstrumentKind, tone: str, heard: str = "") -> Tone:
         return "nylon" if heard == "nylon" else "steel"
     if kind == "bass":
         return "finger"
+    for known in TONES["electric"]:
+        if sound == known:
+            return known
     return "drive" if heard == "distorted" else "clean"
 
 

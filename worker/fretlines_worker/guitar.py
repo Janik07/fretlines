@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from itertools import pairwise
 
 import numpy as np
 from numpy.typing import NDArray
@@ -97,3 +99,20 @@ def transcribe(mono: NDArray[np.float32], grid: BeatGrid) -> tuple[Note, ...]:
         velocity = int(np.clip(40 + 87 * event.amplitude, 1, 127))
         notes.append(Note(round(float(a), 4), round(float(b - a), 4), event.pitch, velocity))
     return tuple(notes)
+
+
+def single_note_share(notes: Sequence[Note]) -> float:
+    """Доля ударов из одной ноты: у соло и риффов почти все такие, у боя — почти ни одного.
+
+    Ноты одного удара по струнам расходятся меньше чем на 0.1 доли.
+    """
+    starts = sorted(note.start for note in notes)
+    if not starts:
+        return 0.0
+    sizes = [1]
+    for previous, current in pairwise(starts):
+        if current - previous <= 0.1:
+            sizes[-1] += 1
+        else:
+            sizes.append(1)
+    return sum(size == 1 for size in sizes) / len(sizes)

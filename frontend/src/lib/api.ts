@@ -77,6 +77,8 @@ export interface Analysis {
   guitar_source: "" | "guitar" | "keys";
   /** Какая гитара в записи: acoustic, clean, distorted; пусто — не определили. */
   guitar_tone: "" | "acoustic" | "clean" | "distorted";
+  /** Какой пресет электро ближе к записи (funk, ambient, metal…); пусто — не электро или старый разбор. */
+  guitar_sound?: string;
   counts: { chords: number; melody: number; bass: number; guitar: number; lyrics_lines: number };
   /** Как разделяли на дорожки: max — вокал отдельной моделью, потом Demucs по инструменталу. */
   separation: { quality: "standard" | "max"; models: string[] };
@@ -117,7 +119,8 @@ export interface PartInfo {
   instrument: InstrumentKind;
   tuning: string;
   capo: number;
-  /** Звук партии (уже без «auto»): steel, nylon, clean, crunch, drive, lead, jazz, finger, pick. */
+  /** Звук партии (уже без «auto»): steel, nylon, clean, funk, chorus, ambient, jazz, blues, crunch,
+   *  drive, fuzz, lead, metal, finger, pick. */
   tone: string;
   notes: number;
   shapes: ChordShape[];

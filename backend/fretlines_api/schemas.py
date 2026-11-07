@@ -13,7 +13,22 @@ RoleName = Literal["original", "melody", "bass", "rhythm", "pad", "percussion"]
 Level = Literal["easy", "medium", "full"]
 Kind = Literal["acoustic", "electric", "bass"]
 ToneName = Literal[
-    "auto", "steel", "nylon", "clean", "crunch", "drive", "lead", "jazz", "finger", "pick"
+    "auto",
+    "steel",
+    "nylon",
+    "clean",
+    "funk",
+    "chorus",
+    "ambient",
+    "jazz",
+    "blues",
+    "crunch",
+    "drive",
+    "fuzz",
+    "lead",
+    "metal",
+    "finger",
+    "pick",
 ]
 
 

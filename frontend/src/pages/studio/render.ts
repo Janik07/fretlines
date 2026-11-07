@@ -71,6 +71,7 @@ async function renderDry(
 export interface RenderJob {
   parts: { index: number; tone: string }[];
   tex: string;
+  beat: number; // длина доли в секундах — под неё эхо в тембрах с дилеем
 }
 
 /** Рендер всех партий; уже готовые (тот же текст и тембр) берутся из кэша. */
@@ -101,7 +102,7 @@ export async function renderParts(
       cancelled,
     );
     if (!dry || cancelled()) return null;
-    const wet = await applyTone(dry, tone);
+    const wet = await applyTone(dry, tone, job.beat);
     const rendered = { key, buffer: wet };
     cache.set(key, rendered);
     out.push(rendered);

@@ -26,7 +26,7 @@ log = logging.getLogger("fretlines.pipeline")
 Report = Callable[[str, float], None]
 OnMeta = Callable[[dict[str, object]], None]
 
-ANALYSIS_VERSION = 2  # 2 — темп по тактам, гитара из записи, текст песни
+ANALYSIS_VERSION = 3  # 2 — темп по тактам, гитара из записи, текст песни; 3 — электро-тембр
 
 _WEIGHTS = {
     "download": 0.1,
@@ -225,13 +225,22 @@ def run_analysis(
             guitar_notes = guitar.transcribe(source[1], grid)
         except Exception:
             log.exception("ноты гитары не распознались")
-    # Какая гитара в записи (акустика, чистая, перегруз) — для звука «как в записи».
+    # Какая гитара в записи (акустика, чистая, перегруз) и какой пресет электро к ней ближе —
+    # для звука «как в записи». Перегруз и эффекты слышны на гитарной дорожке, жанр — по миксу.
     heard_tone = ""
+    heard_sound = ""
     if source is not None and source[0] == "guitar":
         try:
             from fretlines_worker import timbre
 
-            heard_tone = timbre.guitar_tone(timbre.tag(source[1], models_root()))
+            scores = timbre.tag(source[1], models_root())
+            heard_tone = timbre.guitar_tone(scores)
+            if heard_tone in ("clean", "distorted"):
+                genre = timbre.tag(to_mono(audio), models_root())
+                single = guitar.single_note_share(guitar_notes)
+                heard_sound = timbre.guitar_sound(scores, genre, single)
+                log.info("жанр по миксу: %s", genre)
+            log.info("тембр гитары: %s, пресет %s; %s", heard_tone, heard_sound or "—", scores)
         except Exception:
             log.exception("тембр гитары не определился")
     # Схема боя: по гитаре, если она есть в записи, иначе — по барабанам.
@@ -279,6 +288,7 @@ def run_analysis(
         guitar=guitar_notes,
         guitar_source=source[0] if source is not None and guitar_notes else "",
         guitar_tone=heard_tone,
+        guitar_sound=heard_sound,
     )
     report("arrange", 0.0)
     arrange(transcription, preset_players("trio"))  # партии собираются — значит, разбор годный

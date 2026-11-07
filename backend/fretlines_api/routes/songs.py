@@ -44,7 +44,8 @@ TRACK_LABELS = {
     "other": "Остальное",
     "mix": "Оригинал",
 }
-CURRENT_ANALYSIS = 2  # разборы старее — без темпа по тактам, гитары из записи и текста
+CURRENT_ANALYSIS = 3  # разборы старее — без темпа по тактам, гитары из записи, текста
+# и подбора электро-тембра под запись
 
 _mix_locks: dict[str, threading.Lock] = {}
 _mix_guard = threading.Lock()
@@ -258,6 +259,7 @@ def song_analysis(song_id: str, settings: SettingsDep, engine: EngineDep) -> dic
         "warnings": data.get("warnings", []),
         "guitar_source": tx.get("guitar_source", ""),
         "guitar_tone": tx.get("guitar_tone", ""),
+        "guitar_sound": tx.get("guitar_sound", ""),
         "counts": {
             "chords": len(tx["chords"]),
             "melody": len(tx["melody"]),

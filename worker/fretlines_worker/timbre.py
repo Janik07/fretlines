@@ -1,4 +1,4 @@
-"""Какая гитара звучит в записи: акустика, чистая электро или с перегрузом.
+"""Какая гитара звучит в записи: акустика, чистая электро или с перегрузом — и каким пресетом.
 
 Модель — PANNs Cnn10 (Kong et al., 2020; код MIT, веса CC BY 4.0), обучена на AudioSet:
 527 классов звуков, среди них «Электрогитара», «Акустическая гитара», «Дисторшн», «Хэви-метал».
@@ -26,11 +26,30 @@ SR = 32_000
 WINDOW = 10  # секунд на кусок — как при обучении модели
 
 # Номера классов AudioSet (metadata/class_labels_indices.csv в репозитории PANNs).
-GUITAR = 140
-ELECTRIC = 141
-ACOUSTIC = 143
-HEAVY_METAL = 220
-DISTORTION = 517
+CLASSES: dict[str, int] = {
+    "guitar": 140,
+    "electric": 141,
+    "acoustic": 143,
+    "pop": 216,
+    "rock": 219,
+    "metal": 220,
+    "punk": 221,
+    "grunge": 222,
+    "psychedelic": 225,
+    "rnb": 226,
+    "soul": 227,
+    "funk": 232,
+    "jazz": 235,
+    "disco": 236,
+    "ambient": 246,
+    "blues": 251,
+    "new_age": 253,
+    "indie": 265,
+    "chorus": 464,  # «Chorus effect» — эффект, а не хор
+    "reverb": 511,
+    "echo": 512,
+    "distortion": 517,
+}
 
 
 def _weights(models_dir: Path) -> Path:
@@ -134,13 +153,7 @@ def tag(mono: NDArray[np.float32], models_dir: Path, pieces: int = 6) -> dict[st
     model = _model(str(_weights(models_dir)))
     with torch.inference_mode():
         probs = model(batch).mean(dim=0).numpy()
-    return {
-        "guitar": float(probs[GUITAR]),
-        "electric": float(probs[ELECTRIC]),
-        "acoustic": float(probs[ACOUSTIC]),
-        "distortion": float(probs[DISTORTION]),
-        "metal": float(probs[HEAVY_METAL]),
-    }
+    return {name: round(float(probs[index]), 4) for name, index in CLASSES.items()}
 
 
 def guitar_tone(scores: dict[str, float]) -> str:
@@ -156,3 +169,43 @@ def guitar_tone(scores: dict[str, float]) -> str:
     if scores["electric"] >= 0.02 or scores["guitar"] >= 0.05:
         return "clean"
     return ""
+
+
+def guitar_sound(guitar: dict[str, float], mix: dict[str, float], single_share: float) -> str:
+    """Какой пресет электро ближе к записи; пусто — гитара не электро.
+
+    guitar — ответы модели на гитарную дорожку (перегруз и эффекты слышнее всего там), mix — на
+    всю песню (жанр модель узнаёт по миксу целиком), single_share — доля ударов из одной ноты
+    (соло и риффы). Жанр подсказывает, как обычно звучит гитара: фанк — чистый звук с
+    компрессором, психоделика — фузз, эмбиент — дилей и большой ревер. Пороги — стартовые:
+    у главного жанра песни модель обычно даёт 0.2–0.6, у остальных — меньше 0.1.
+    """
+    tone = guitar_tone(guitar)
+    if tone == "distorted":
+        if guitar.get("metal", 0) >= 0.2 or mix.get("metal", 0) >= 0.25:
+            return "metal"
+        if mix.get("psychedelic", 0) >= 0.1:
+            return "fuzz"
+        if single_share >= 0.8:
+            return "lead"
+        if guitar["distortion"] < 0.25:
+            return "blues" if mix.get("blues", 0) >= 0.15 else "crunch"
+        return "drive"
+    if tone != "clean":
+        return ""
+    if mix.get("jazz", 0) >= 0.15:
+        return "jazz"
+    groove = mix.get("funk", 0) + mix.get("disco", 0) + mix.get("soul", 0) + mix.get("rnb", 0)
+    if mix.get("funk", 0) >= 0.12 or groove >= 0.3:
+        return "funk"
+    if (
+        mix.get("ambient", 0) + mix.get("new_age", 0) >= 0.12
+        or guitar.get("echo", 0) >= 0.15
+        or guitar.get("reverb", 0) >= 0.3
+    ):
+        return "ambient"
+    if guitar.get("chorus", 0) >= 0.08:
+        return "chorus"
+    if mix.get("blues", 0) >= 0.25:
+        return "blues"
+    return "clean"

@@ -215,7 +215,7 @@ function PlayerCard({
                 onChange({ ...player, tone: e.target.value });
               }}
               className="field h-9 appearance-none pr-8 text-small"
-              title="Звук в плеере: усилитель, кабинет и комната подбираются под тембр"
+              title="Звук в плеере: усилитель, кабинет, эффекты и комната подбираются под тембр"
             >
               {tones.map((t) => (
                 <option key={t.id} value={t.id}>

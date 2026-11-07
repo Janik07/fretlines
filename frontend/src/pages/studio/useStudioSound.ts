@@ -48,7 +48,11 @@ export function useStudioSound(
       if (!api?.score) return;
       setStatus("rendering");
       setProgress(0);
-      const job = { tex, parts: arrangement.parts.map((p, index) => ({ index, tone: p.tone })) };
+      const job = {
+        tex,
+        beat: 60 / Math.max(arrangement.tempo, 1),
+        parts: arrangement.parts.map((p, index) => ({ index, tone: p.tone })),
+      };
       renderParts(api, job, cache.current, setProgress, () => cancelled)
         .then((rendered) => {
           if (cancelled || !rendered) return;

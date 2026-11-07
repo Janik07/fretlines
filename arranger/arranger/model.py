@@ -63,6 +63,8 @@ class Transcription:
     guitar_source: str = ""
     # Какая гитара звучит в записи: "acoustic", "clean", "distorted" (пусто — не определяли).
     guitar_tone: str = ""
+    # Какой именно электро-тембр ближе к записи: "funk", "ambient", "metal"… — см. TONES.
+    guitar_sound: str = ""
 
     @property
     def total_beats(self) -> int:
@@ -84,6 +86,7 @@ class Transcription:
             "guitar": [_note_dict(n) for n in self.guitar],
             "guitar_source": self.guitar_source,
             "guitar_tone": self.guitar_tone,
+            "guitar_sound": self.guitar_sound,
         }
 
     @classmethod
@@ -105,6 +108,7 @@ class Transcription:
             guitar=tuple(_note_from(n) for n in data.get("guitar", [])),
             guitar_source=str(data.get("guitar_source", "")),
             guitar_tone=str(data.get("guitar_tone", "")),
+            guitar_sound=str(data.get("guitar_sound", "")),
         )
 
 

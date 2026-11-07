@@ -115,7 +115,7 @@ def _title(player: PlayerSetup, roles: Sequence[Role]) -> str:
 def build_part(ctx: Context, player: PlayerSetup) -> Part:
     instrument = make_instrument(player.kind, player.tuning, player.capo)
     level = player.difficulty
-    tone = resolve_tone(instrument.kind, player.tone, ctx.tx.guitar_tone)
+    tone = resolve_tone(instrument.kind, player.tone, ctx.tx.guitar_tone, ctx.tx.guitar_sound)
     power = tone in DISTORTED
     wanted = [r for r in PRIORITY if r in player.roles] or ["rhythm"]
     warnings: list[str] = []
