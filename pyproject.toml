@@ -68,6 +68,7 @@ explicit_package_bases = true
 module = [
     "beat_this.*", "demucs.*", "imageio_ffmpeg.*", "librosa.*", "scipy.*", "soundfile.*",
     "torchaudio.*", "torchcrepe.*", "yt_dlp.*", "onnxruntime.*", "faster_whisper.*",
+    "audio_separator.*",
 ]
 ignore_missing_imports = true
 

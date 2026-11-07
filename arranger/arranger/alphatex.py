@@ -11,7 +11,7 @@ from collections.abc import Iterator, Sequence
 from itertools import pairwise
 
 from arranger.arrange import Arrangement
-from arranger.instruments import Instrument, make_instrument
+from arranger.instruments import TONE_PROGRAMS, Instrument, make_instrument
 from arranger.model import STEPS_PER_BEAT, Part, TabBeat, TabNote
 from arranger.theory import midi_name
 
@@ -63,12 +63,32 @@ def _note_text(note: TabNote, tie: bool) -> str:
     return f"{fret}.{note.string}" + ("{x}" if note.dead and not tie else "")
 
 
+def _dynamic(beat: TabBeat) -> str:
+    """Громкость удара: вниз на долю — громко, вверх — тише, отдельные ноты — средне.
+
+    Без этого бой звучит как машина: все удары одной силы.
+    """
+    if beat.stroke == "down":
+        return "f" if beat.start % STEPS_PER_BEAT == 0 else "mf"
+    if beat.stroke == "up":
+        return "mp"
+    return "mf"
+
+
 def _beat_text(
-    beat: TabBeat | None, value: int, dotted: bool, tie: bool, first: bool, lyric: str | None = None
+    beat: TabBeat | None,
+    value: int,
+    dotted: bool,
+    tie: bool,
+    first: bool,
+    lyric: str | None = None,
+    dynamic: str | None = None,
 ) -> str:
     props = []
     if dotted:
         props.append("d")
+    if dynamic:
+        props.append("dy " + dynamic)
     if lyric:
         props.append("lyrics " + _text(lyric))
     if beat is None or not beat.notes:
@@ -126,6 +146,7 @@ def _bars(
 
     lyrics = _lyrics_by_event(events, words)
     out: list[list[str]] = [[] for _ in range(bars)]
+    loudness: str | None = None  # громкость в alphaTex держится до следующей смены
     for index, (start, length, beat) in enumerate(events):
         t = start
         first = True
@@ -136,7 +157,14 @@ def _bars(
             for i, (value, dotted) in enumerate(pieces):
                 is_first = first and i == 0
                 lyric = lyrics.get(index) if is_first else None
-                out[bar].append(_beat_text(beat, value, dotted, not is_first, is_first, lyric))
+                dynamic = None
+                if is_first and beat is not None and beat.notes:
+                    wanted = _dynamic(beat)
+                    if wanted != loudness:
+                        dynamic = loudness = wanted
+                out[bar].append(
+                    _beat_text(beat, value, dotted, not is_first, is_first, lyric, dynamic)
+                )
             first = False
             t += chunk
     return [" ".join(tokens) for tokens in out]
@@ -175,7 +203,7 @@ def part_to_alphatex(
     instrument = make_instrument(part.instrument_kind, part.tuning_id, part.capo)
     lines = [
         f"\\track ({_text(part.title)} {_text(_short(part.title))}) "
-        f"{{ instrument {instrument.midi_program} }}",
+        f"{{ instrument {TONE_PROGRAMS.get(part.tone, instrument.midi_program)} }}",  # type: ignore[call-overload]
         "\\staff {tabs}",
         _tuning(instrument),
     ]

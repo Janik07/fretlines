@@ -18,7 +18,7 @@ from typing import Any, Literal
 import numpy as np
 
 from arranger import Transcription, arrange, preset_players
-from fretlines_worker.audio import SAMPLE_RATE, decode, encode_mp3, peaks, to_mono
+from fretlines_worker.audio import SAMPLE_RATE, decode, encode_flac, encode_mp3, peaks, to_mono
 from fretlines_worker.errors import AnalysisError
 
 log = logging.getLogger("fretlines.pipeline")
@@ -136,6 +136,7 @@ def run_analysis(
     title: str | None = None,
     artist: str | None = None,
     lyrics: LyricsOptions | None = None,
+    separation: Literal["standard", "max"] = "standard",
 ) -> dict[str, Any]:
     configure_models(models_dir)
     lyrics = lyrics or LyricsOptions(mode="off")
@@ -168,10 +169,18 @@ def run_analysis(
     on_meta({"device": used})
     log.info("разбор %s: %.0f с звука, устройство %s", folder.name, duration, used)
 
+    from fretlines_worker.notes import models_root
     from fretlines_worker.separation import separate
 
     report("stems", 0.0)
-    stems = separate(audio, used, lambda f: report("stems", f))
+    stems, instrumental, separated_by = separate(
+        audio,
+        used,
+        lambda f: report("stems", f),
+        quality=separation,
+        workdir=folder / "_separation",
+        models_dir=models_root() / "separator",
+    )
     lap("stems")
 
     from fretlines_worker.grid import BeatGrid
@@ -216,6 +225,15 @@ def run_analysis(
             guitar_notes = guitar.transcribe(source[1], grid)
         except Exception:
             log.exception("ноты гитары не распознались")
+    # Какая гитара в записи (акустика, чистая, перегруз) — для звука «как в записи».
+    heard_tone = ""
+    if source is not None and source[0] == "guitar":
+        try:
+            from fretlines_worker import timbre
+
+            heard_tone = timbre.guitar_tone(timbre.tag(source[1], models_root()))
+        except Exception:
+            log.exception("тембр гитары не определился")
     # Схема боя: по гитаре, если она есть в записи, иначе — по барабанам.
     accents: tuple[float, ...] = ()
     if source is not None and source[0] == "guitar":
@@ -260,6 +278,7 @@ def run_analysis(
         bar_seconds=grid.bar_seconds(),
         guitar=guitar_notes,
         guitar_source=source[0] if source is not None and guitar_notes else "",
+        guitar_tone=heard_tone,
     )
     report("arrange", 0.0)
     arrange(transcription, preset_players("trio"))  # партии собираются — значит, разбор годный
@@ -268,9 +287,15 @@ def run_analysis(
     report("save", 0.0)
     out = folder / "stems"
     out.mkdir(exist_ok=True)
-    names = ["mix", *stems]
+    # mp3 — чтобы слушать в плеере, FLAC 24 бита — чтобы скачать дорожки без потерь.
+    tracks: dict[str, Any] = {"mix": audio, **stems, "instrumental": instrumental}
+    names = list(tracks)
+    lossless = out / "flac"
+    lossless.mkdir(exist_ok=True)
     for i, name in enumerate(names):
-        encode_mp3(audio if name == "mix" else stems[name], out / f"{name}.mp3", bitrate="128k")
+        encode_mp3(tracks[name], out / f"{name}.mp3", bitrate="192k")
+        if name != "mix":  # оригинал и так лежит как есть (source.*)
+            encode_flac(tracks[name], lossless / f"{name}.flac")
         report("save", (i + 1) / len(names))
 
     warnings: list[str] = []
@@ -295,6 +320,10 @@ def run_analysis(
         "transcription": transcription.to_dict(),
         "stems": names,
         "device": used,
+        "separation": {
+            "quality": "max" if len(separated_by) > 1 else "standard",
+            "models": separated_by,
+        },
         "warnings": warnings,
         "timings": timings,
     }

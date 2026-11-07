@@ -1,4 +1,4 @@
-import type { Analysis, Meta, Player, Role, StemName, StudioSetup } from "../../lib/api";
+import type { Analysis, InstrumentKind, Meta, Player, Role, StemName, StudioSetup } from "../../lib/api";
 
 export const ROLE_ORDER: Role[] = ["original", "melody", "rhythm", "bass", "pad", "percussion"];
 
@@ -57,15 +57,38 @@ export function applyPreset(meta: Meta | null, id: string, previous: Player[]): 
   });
 }
 
+const MY_INSTRUMENT = "fretlines.myInstrument";
+
+/** На чём играешь сам — чтобы новые песни сразу открывались с твоей гитарой. */
+export function rememberMyInstrument(kind: InstrumentKind): void {
+  try {
+    localStorage.setItem(MY_INSTRUMENT, kind);
+  } catch {
+    // браузер без localStorage — просто не запоминаем
+  }
+}
+
+function myInstrument(): InstrumentKind | null {
+  try {
+    const kind = localStorage.getItem(MY_INSTRUMENT);
+    return kind === "electric" || kind === "acoustic" ? kind : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Новый разбор: если в записи нашлась гитара — сразу партия «как в записи», иначе трио. */
 export function defaultSetup(meta: Meta | null, analysis?: Analysis | null): StudioSetup {
   const record = (analysis?.counts.guitar ?? 0) >= 40;
-  return {
-    players: applyPreset(meta, record ? "record" : "trio", []),
-    transpose: 0,
-    mine: "p1",
-    sound: "record",
-  };
+  const players = applyPreset(meta, record ? "record" : "trio", []);
+  // Своя гитара важнее; иначе — какая гитара звучит в записи.
+  const heard = analysis?.guitar_tone;
+  const fromRecord: InstrumentKind | null =
+    heard === "clean" || heard === "distorted" ? "electric" : heard === "acoustic" ? "acoustic" : null;
+  const kind = myInstrument() ?? (record ? fromRecord : null);
+  const first = players[0];
+  if (kind && first && !first.roles.includes("bass")) players[0] = { ...first, instrument: kind };
+  return { players, transpose: 0, mine: "p1", sound: "record" };
 }
 
 /** Какие дорожки записи берут на себя игроки группы — их глушим в режиме «Вместе». */

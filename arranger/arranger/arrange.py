@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from arranger.instruments import InstrumentKind, make_instrument
+from arranger.instruments import DISTORTED, InstrumentKind, make_instrument, resolve_tone
 from arranger.model import (
     STEPS_PER_BEAT,
     ChordShape,
@@ -56,6 +56,7 @@ class PlayerSetup:
     capo: int = 0
     roles: tuple[Role, ...] = ("rhythm",)
     difficulty: Difficulty = "medium"
+    tone: str = "auto"  # звук гитары: instruments.TONES или «auto» — как в записи
 
 
 PRESETS: dict[str, tuple[tuple[str, tuple[Role, ...]], ...]] = {
@@ -114,6 +115,8 @@ def _title(player: PlayerSetup, roles: Sequence[Role]) -> str:
 def build_part(ctx: Context, player: PlayerSetup) -> Part:
     instrument = make_instrument(player.kind, player.tuning, player.capo)
     level = player.difficulty
+    tone = resolve_tone(instrument.kind, player.tone, ctx.tx.guitar_tone)
+    power = tone in DISTORTED
     wanted = [r for r in PRIORITY if r in player.roles] or ["rhythm"]
     warnings: list[str] = []
     if instrument.kind == "bass" and any(r not in ("bass", "melody") for r in wanted):
@@ -124,7 +127,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
     beats: list[TabBeat]
     played: list[Role]
     h = (
-        harmony(ctx, instrument, level)
+        harmony(ctx, instrument, level, power)
         if roles & {"rhythm", "pad", "original"} or len(roles) > 1
         else None
     )
@@ -158,7 +161,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
         elif main == "percussion":
             beats = percussion_part(ctx, instrument, level)
         else:
-            h = h or harmony(ctx, instrument, level)
+            h = h or harmony(ctx, instrument, level, power)
             beats = (rhythm_part if main == "rhythm" else pad_part)(ctx, instrument, level, h)
     # «Как в записи» либо сыграна, либо заменена ритмом (о чём уже предупредили).
     skipped = [ROLE_LABELS[r].lower() for r in wanted if r not in played and r != "original"]
@@ -189,6 +192,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
         difficulty=level,
         instrument_kind=instrument.kind,
         tuning_id=instrument.tuning.id,
+        tone=tone,
         capo=instrument.capo,
         beats=tuple(beats),
         shapes=shapes,
@@ -247,6 +251,7 @@ def arrangement_to_dict(arr: Arrangement) -> dict[str, Any]:
                 "instrument": p.instrument_kind,
                 "tuning": p.tuning_id,
                 "capo": p.capo,
+                "tone": p.tone,
                 "notes": sum(len(b.notes) > 0 for b in p.beats),
                 "shapes": [{"name": s.name, "frets": list(s.frets)} for s in p.shapes],
                 "warnings": list(p.warnings),

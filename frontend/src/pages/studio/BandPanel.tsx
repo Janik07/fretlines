@@ -5,7 +5,8 @@ import { Icon } from "../../components/Icon";
 import { Segmented } from "../../components/Segmented";
 import type { Arrangement, Difficulty, InstrumentKind, Meta, Player, Role, StudioSetup } from "../../lib/api";
 import { EASE_FILM } from "../../lib/motion";
-import { applyPreset, newPlayer, presetOf, ROLE_LABELS, ROLE_ORDER } from "./setup";
+import { applyPreset, newPlayer, presetOf, rememberMyInstrument, ROLE_LABELS, ROLE_ORDER } from "./setup";
+import { GUITAR_PRESET, isTone } from "./tone";
 
 const PRESETS = [
   { value: "record", label: "Оригинал" },
@@ -63,6 +64,7 @@ function PlayerCard({
   mine,
   hint,
   warnings,
+  tone,
   canRemove,
   onChange,
   onRemove,
@@ -75,6 +77,7 @@ function PlayerCard({
   mine: boolean;
   hint: number | null;
   warnings: string[];
+  tone: string | undefined;
   canRemove: boolean;
   onChange: (player: Player) => void;
   onRemove: () => void;
@@ -83,6 +86,10 @@ function PlayerCard({
 }) {
   const [over, setOver] = useState(false);
   const tunings = (meta?.tunings ?? []).filter((t) => t.bass === (player.instrument === "bass"));
+  const tones = meta?.tones[player.instrument] ?? [{ id: "auto", label: "Как в записи" }];
+  // Во что «как в записи» превратилось для этой песни — и какой пресет включить на смарт-гитаре.
+  const heard = tone ? tones.find((t) => t.id === tone)?.label : undefined;
+  const preset = tone && isTone(tone) ? GUITAR_PRESET[tone] : undefined;
 
   function toggleRole(role: Role) {
     const has = player.roles.includes(role);
@@ -187,16 +194,43 @@ function PlayerCard({
           onChange={(instrument) => {
             const bass = instrument === "bass";
             const wasBass = player.instrument === "bass";
+            if (mine && !bass) rememberMyInstrument(instrument);
             onChange({
               ...player,
               instrument,
               tuning: bass === wasBass ? player.tuning : bass ? "bass-standard" : "standard",
               capo: bass ? 0 : player.capo,
               roles: bass ? ["bass"] : player.roles,
+              tone: "auto",
             });
           }}
           options={KINDS}
         />
+        <div>
+          <label className="relative block">
+            <span className="sr-only">Звук гитары</span>
+            <select
+              value={player.tone ?? "auto"}
+              onChange={(e) => {
+                onChange({ ...player, tone: e.target.value });
+              }}
+              className="field h-9 appearance-none pr-8 text-small"
+              title="Звук в плеере: усилитель, кабинет и комната подбираются под тембр"
+            >
+              {tones.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.id === "auto" && heard ? `Как в записи · ${heard}` : t.label}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-text-dim">
+              <Icon name="chevron" size={14} />
+            </span>
+          </label>
+          {preset && (
+            <p className="mt-1.5 text-caption text-text-dim">На смарт-гитаре — пресет {preset}</p>
+          )}
+        </div>
         <Segmented
           size="sm"
           label="Сложность"
@@ -344,6 +378,7 @@ export function BandPanel({
                 mine={setup.mine === player.id}
                 hint={hint}
                 warnings={part?.warnings ?? []}
+                tone={part?.tone}
                 canRemove={setup.players.length > 1}
                 onChange={(next) => {
                   updatePlayer(index, next);

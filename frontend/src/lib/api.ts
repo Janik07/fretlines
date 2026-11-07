@@ -33,6 +33,8 @@ export interface Player {
   capo: number;
   roles: Role[];
   difficulty: Difficulty;
+  /** Звук гитары: «auto» — как в записи (см. Meta.tones). */
+  tone?: string;
 }
 
 /** Что звучит в плеере: партии синтезатором, запись или запись без партий группы + партии. */
@@ -52,6 +54,7 @@ export interface Meta {
   tunings: { id: string; label: string; bass: boolean; notes: string[] }[];
   instruments: { id: InstrumentKind; label: string }[];
   roles: { id: Role; label: string }[];
+  tones: Record<InstrumentKind, { id: string; label: string }[]>;
   difficulties: { id: Difficulty; label: string }[];
   presets: { id: string; label: string; players: { name: string; roles: Role[] }[] }[];
   limits: { max_upload_mb: number; max_video_upload_mb: number; max_minutes: number };
@@ -72,7 +75,13 @@ export interface Analysis {
   stems: string[];
   warnings: string[];
   guitar_source: "" | "guitar" | "keys";
+  /** Какая гитара в записи: acoustic, clean, distorted; пусто — не определили. */
+  guitar_tone: "" | "acoustic" | "clean" | "distorted";
   counts: { chords: number; melody: number; bass: number; guitar: number; lyrics_lines: number };
+  /** Как разделяли на дорожки: max — вокал отдельной моделью, потом Demucs по инструменталу. */
+  separation: { quality: "standard" | "max"; models: string[] };
+  /** Дорожки, которые можно скачать без потерь (FLAC). */
+  lossless: string[];
   device: string | null;
   timings: Record<string, number>;
 }
@@ -108,6 +117,8 @@ export interface PartInfo {
   instrument: InstrumentKind;
   tuning: string;
   capo: number;
+  /** Звук партии (уже без «auto»): steel, nylon, clean, crunch, drive, lead, jazz, finger, pick. */
+  tone: string;
   notes: number;
   shapes: ChordShape[];
   warnings: string[];

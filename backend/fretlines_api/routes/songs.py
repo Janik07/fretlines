@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import threading
+import zipfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -30,8 +31,19 @@ router = APIRouter(tags=["songs"])
 
 AUDIO_EXTENSIONS = {"mp3", "wav", "m4a", "flac", "ogg", "opus", "aac", "wma", "aif", "aiff"}
 VIDEO_EXTENSIONS = {"mp4", "mov", "webm", "mkv", "avi", "3gp"}
-StemName = Literal["mix", "vocals", "bass", "drums", "guitar", "piano", "other"]
+StemName = Literal["mix", "vocals", "bass", "drums", "guitar", "piano", "other", "instrumental"]
 STEMS = ("vocals", "bass", "drums", "guitar", "piano", "other")
+# Как дорожки называются в скачанных файлах.
+TRACK_LABELS = {
+    "instrumental": "Инструментал",
+    "vocals": "Вокал",
+    "guitar": "Гитара",
+    "bass": "Бас",
+    "drums": "Барабаны",
+    "piano": "Клавиши",
+    "other": "Остальное",
+    "mix": "Оригинал",
+}
 CURRENT_ANALYSIS = 2  # разборы старее — без темпа по тактам, гитары из записи и текста
 
 _mix_locks: dict[str, threading.Lock] = {}
@@ -245,6 +257,7 @@ def song_analysis(song_id: str, settings: SettingsDep, engine: EngineDep) -> dic
         "stems": data.get("stems", []),
         "warnings": data.get("warnings", []),
         "guitar_source": tx.get("guitar_source", ""),
+        "guitar_tone": tx.get("guitar_tone", ""),
         "counts": {
             "chords": len(tx["chords"]),
             "melody": len(tx["melody"]),
@@ -253,6 +266,10 @@ def song_analysis(song_id: str, settings: SettingsDep, engine: EngineDep) -> dic
             "lyrics_lines": len(lyrics["lines"]) if lyrics else 0,
         },
         "device": data.get("device"),
+        "separation": data.get("separation", {"quality": "standard", "models": ["htdemucs_6s"]}),
+        "lossless": sorted(
+            p.stem for p in (settings.song_dir(song_id) / "stems" / "flac").glob("*.flac")
+        ),
         "timings": data.get("timings", {}),
     }
 
@@ -323,6 +340,7 @@ def song_arrangement(
             capo=p.capo,
             roles=tuple(p.roles),
             difficulty=p.difficulty,
+            tone=p.tone,
         )
         for p in body.players
     ]
@@ -389,6 +407,9 @@ def song_mix(
     muted = sorted({name for name in without.split(",") if name in STEMS})
     if not muted:
         path = folder / "mix.mp3"
+    elif muted == ["vocals"] and (folder / "instrumental.mp3").exists():
+        # Инструментал отдельной моделью чище, чем сумма дорожек без вокала.
+        path = folder / "instrumental.mp3"
     else:
         keep = [name for name in STEMS if name not in muted]
         if not keep or any(not (folder / f"{name}.mp3").exists() for name in keep):
@@ -402,3 +423,59 @@ def song_mix(
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Этой дорожки нет.")
     return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "max-age=3600"})
+
+
+def _download_name(song: Song, track: str, extension: str) -> str:
+    title = re.sub(r'[\/:*?"<>|]+', " ", song.title).strip()[:80] or "Fretlines"
+    return f"{title} — {TRACK_LABELS[track]}.{extension}"
+
+
+@router.get("/songs/{song_id}/download/{track}")
+def download_track(
+    song_id: str,
+    track: StemName,
+    settings: SettingsDep,
+    engine: EngineDep,
+    format: Literal["flac", "mp3"] = "flac",
+) -> FileResponse:
+    """Дорожка или инструментал файлом: FLAC 24 бита без потерь или mp3 192 кбит/с."""
+    song = _get(engine, song_id)
+    stems = settings.song_dir(song_id) / "stems"
+    path = stems / "flac" / f"{track}.flac" if format == "flac" else stems / f"{track}.mp3"
+    if not path.exists():
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Этой дорожки нет. Обнови разбор — дорожки сохранятся заново.",
+        )
+    return FileResponse(
+        path,
+        media_type="audio/flac" if format == "flac" else "audio/mpeg",
+        filename=_download_name(song, track, format),
+    )
+
+
+@router.get("/songs/{song_id}/download-all")
+def download_all(song_id: str, settings: SettingsDep, engine: EngineDep) -> FileResponse:
+    """Все дорожки и инструментал одним архивом (FLAC без потерь)."""
+    song = _get(engine, song_id)
+    lossless = settings.song_dir(song_id) / "stems" / "flac"
+    files = sorted(lossless.glob("*.flac")) if lossless.exists() else []
+    if not files:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Дорожек без потерь нет — обнови разбор.")
+    archive = lossless.parent / "all-flac.zip"
+    newest = max(f.stat().st_mtime for f in files)
+    with _mix_guard:
+        lock = _mix_locks.setdefault(song_id, threading.Lock())
+    with lock:
+        if not archive.exists() or archive.stat().st_mtime < newest:
+            tmp = archive.with_suffix(".tmp")
+            # FLAC уже сжат — архив без сжатия собирается мгновенно.
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as bundle:
+                for file in files:
+                    if file.stem in TRACK_LABELS:
+                        bundle.write(file, _download_name(song, file.stem, "flac"))
+            tmp.replace(archive)
+    title = re.sub(r'[\/:*?"<>|]+', " ", song.title).strip()[:80] or "Fretlines"
+    return FileResponse(
+        archive, media_type="application/zip", filename=f"{title} — дорожки (FLAC).zip"
+    )

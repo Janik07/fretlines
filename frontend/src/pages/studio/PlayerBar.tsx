@@ -8,6 +8,7 @@ import { clock } from "../../lib/format";
 import { EASE_FILM } from "../../lib/motion";
 import { RoleMark } from "./BandPanel";
 import type { AlphaTabControls } from "./useAlphaTab";
+import type { StudioSound } from "./useStudioSound";
 
 export interface TrackMix {
   mute: boolean;
@@ -92,6 +93,7 @@ export function PlayerBar({
   onRecordVolume,
   recordLoading,
   recordError,
+  studio,
   lyricsAvailable,
   karaoke,
   onKaraoke,
@@ -115,6 +117,7 @@ export function PlayerBar({
   onRecordVolume: (volume: number) => void;
   recordLoading: boolean;
   recordError: string | null;
+  studio: StudioSound;
   lyricsAvailable: boolean;
   karaoke: boolean;
   onKaraoke: (on: boolean) => void;
@@ -181,6 +184,17 @@ export function PlayerBar({
             <Segmented size="sm" label="Что звучит" value={sound} onChange={onSound} options={SOUND_OPTIONS} />
             {recordLoading && <span className="pulse-soft text-caption text-text-dim">загружаю запись…</span>}
             {recordError && <span className="text-caption text-danger">{recordError}</span>}
+            {sound !== "record" && studio.status === "rendering" && (
+              <span className="pulse-soft text-caption text-text-dim" title="Каждая партия идёт через свой усилитель, кабинет и комнату. Пока звук готовится, играет простой синтезатор.">
+                студийный звук: {Math.round(studio.progress * 100)}%
+              </span>
+            )}
+            {sound !== "record" && studio.status === "ready" && (
+              <span className="text-caption text-text-dim" title="Партии звучат через усилитель, кабинет и комнату">студийный звук</span>
+            )}
+            {sound !== "record" && studio.status === "error" && (
+              <span className="text-caption text-text-dim">простой звук</span>
+            )}
           </div>
         )}
 

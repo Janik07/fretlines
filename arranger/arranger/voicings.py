@@ -107,13 +107,16 @@ def chord_voicings(
     power = chord.quality == "5"
     min_strings = 2 if power else min(_MIN_STRINGS[level], n)
     top_window = min(_TOP_WINDOW, instrument.frets - span + 1)
-    allow_inversion = level != "full"
+    # Пауэр-аккорд без основного тона внизу — уже не пауэр-аккорд (квинта «висит»).
+    allow_inversion = level != "full" and not power
     found: dict[tuple[int | None, ...], Voicing] = {}
 
     for low in range(n, 0, -1):  # самая толстая играемая струна
         for high in range(1, low + 1):  # самая тонкая
             count = low - high + 1
             if count < min_strings or (power and count > 3) or (not power and high > 2):
+                continue
+            if power and low < n - 2:  # пауэр-аккорды берут на трёх толстых струнах
                 continue
             for window in range(1, max(1, top_window) + 1):
                 frets_range = [0, *range(window, window + span)]

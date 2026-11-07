@@ -49,6 +49,57 @@ INSTRUMENT_LABELS: dict[InstrumentKind, str] = {
     "bass": "Бас-гитара",
 }
 
+# Звук гитары. «auto» — как в записи: перегруз, если разбор услышал его в оригинале.
+# Электро-тембры названы как пресеты смарт-гитар (Enya Inspire: Clean, Crunch, Overdrive, Lead),
+# чтобы было понятно, что включить на своей гитаре.
+Tone = Literal[
+    "auto", "steel", "nylon", "clean", "crunch", "drive", "lead", "jazz", "finger", "pick"
+]
+TONES: dict[InstrumentKind, tuple[Tone, ...]] = {
+    "acoustic": ("steel", "nylon"),
+    "electric": ("clean", "crunch", "drive", "lead", "jazz"),
+    "bass": ("finger", "pick"),
+}
+TONE_LABELS: dict[Tone, str] = {
+    "auto": "Как в записи",
+    "steel": "Стальные струны",
+    "nylon": "Нейлон",
+    "clean": "Чистый (Clean)",
+    "crunch": "Кранч (Crunch)",
+    "drive": "Перегруз (Overdrive)",
+    "lead": "Соло (Lead)",
+    "jazz": "Джаз",
+    "finger": "Пальцами",
+    "pick": "Медиатором",
+}
+# Программа General MIDI для встроенного синтезатора. Студийный звук (усилитель, кабинет)
+# интерфейс собирает сам из чистой гитары — см. frontend/src/pages/studio/tone.ts.
+TONE_PROGRAMS: dict[Tone, int] = {
+    "steel": 25,
+    "nylon": 24,
+    "clean": 27,
+    "crunch": 29,
+    "drive": 29,
+    "lead": 30,
+    "jazz": 26,
+    "finger": 33,
+    "pick": 34,
+}
+# С перегрузом аккорды берут пауэр-аккордами (основной тон + квинта): терции «грязнят».
+DISTORTED: frozenset[Tone] = frozenset({"drive", "lead"})
+
+
+def resolve_tone(kind: InstrumentKind, tone: str, heard: str = "") -> Tone:
+    """Звук игрока; heard — что разбор услышал в записи: acoustic, clean или distorted."""
+    for known in TONES[kind]:
+        if tone == known:
+            return known
+    if kind == "acoustic":
+        return "nylon" if heard == "nylon" else "steel"
+    if kind == "bass":
+        return "finger"
+    return "drive" if heard == "distorted" else "clean"
+
 
 @dataclass(frozen=True, slots=True)
 class Instrument:

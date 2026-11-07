@@ -51,6 +51,7 @@ def create_app(settings: Settings | None = None, *, run_jobs: bool = True) -> Fa
             app_settings.sqlalchemy_url,
             app_settings.device,
             (app_settings.lyrics, app_settings.lyrics_model),
+            app_settings.separation,
         )
         if run_jobs:
             runner.start()

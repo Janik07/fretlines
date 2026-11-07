@@ -61,6 +61,8 @@ class Transcription:
     guitar: tuple[Note, ...] = ()
     # Откуда взяты эти ноты: "guitar" — гитарная дорожка, "keys" — клавишные, если гитары нет.
     guitar_source: str = ""
+    # Какая гитара звучит в записи: "acoustic", "clean", "distorted" (пусто — не определяли).
+    guitar_tone: str = ""
 
     @property
     def total_beats(self) -> int:
@@ -81,6 +83,7 @@ class Transcription:
             "bar_seconds": [round(t, 4) for t in self.bar_seconds],
             "guitar": [_note_dict(n) for n in self.guitar],
             "guitar_source": self.guitar_source,
+            "guitar_tone": self.guitar_tone,
         }
 
     @classmethod
@@ -101,6 +104,7 @@ class Transcription:
             bar_seconds=tuple(float(t) for t in data.get("bar_seconds", [])),
             guitar=tuple(_note_from(n) for n in data.get("guitar", [])),
             guitar_source=str(data.get("guitar_source", "")),
+            guitar_tone=str(data.get("guitar_tone", "")),
         )
 
 
@@ -159,3 +163,4 @@ class Part:
     beats: tuple[TabBeat, ...]
     shapes: tuple[ChordShape, ...] = ()
     warnings: tuple[str, ...] = field(default=())
+    tone: str = ""  # звук гитары (см. instruments.TONES), уже без «auto»

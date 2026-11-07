@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     lyrics: Literal["online", "local", "off"] = "online"
     # Модель Whisper: small (~460 МБ) — быстро на процессоре; medium, large-v3 — точнее.
     lyrics_model: str = "small"
+    # Разделение на дорожки: max — сначала вокал сильной моделью (MDX-Net, на видеокарте —
+    # BS-RoFormer), потом Demucs по инструменталу; standard — один Demucs, примерно вдвое быстрее.
+    separation: Literal["standard", "max"] = "max"
 
     @property
     def sqlalchemy_url(self) -> str:

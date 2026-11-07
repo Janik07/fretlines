@@ -32,6 +32,7 @@ export function useRecording(
   src: string | null,
   timeline: Timeline | null,
   volume: number,
+  offset = 0, // сдвиг в секундах: студийный звук партий начинается с начала первого такта
 ): Recording {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const settleUntil = useRef(0);
@@ -42,9 +43,11 @@ export function useRecording(
   const [error, setError] = useState<string | null>(null);
   const { subscribe } = controls;
 
+  const offsetRef = useRef(offset);
   useEffect(() => {
     timelineRef.current = timeline;
-  }, [timeline]);
+    offsetRef.current = offset;
+  }, [timeline, offset]);
 
   useEffect(() => {
     const audio = new Audio();
@@ -128,7 +131,7 @@ export function useRecording(
         if (audio && !audio.paused) audio.pause();
         return;
       }
-      const target = tickToSeconds(map, tick);
+      const target = tickToSeconds(map, tick) - offsetRef.current;
       audio.dataset.target = target.toFixed(3);
       if (target < 0) {
         // Первый такт начинается раньше записи (затакт до первого звука): запись ждёт нуля.

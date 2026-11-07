@@ -117,6 +117,8 @@ export interface AlphaTabControls {
   toggleCountIn: () => void;
   setTrackState: (index: number, state: { mute: boolean; solo: boolean; volume: number }) => void;
   print: () => void;
+  /** Сам плеер — для рендера студийного звука (render.ts). */
+  api: () => alphaTab.AlphaTabApi | null;
   exportGp: (filename: string) => void;
   exportMidi: () => void;
 }
@@ -355,6 +357,7 @@ export function useAlphaTab(
         api.changeTrackVolume([track], state.volume);
       });
     },
+    api: () => apiRef.current,
     print: () => {
       withApi((api) => {
         api.print();

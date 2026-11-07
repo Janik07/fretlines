@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from arranger import INSTRUMENT_LABELS, PRESET_LABELS, PRESETS, TUNINGS
 from arranger.arrange import ROLE_LABELS
+from arranger.instruments import TONE_LABELS, TONES
 from arranger.theory import midi_name
 from fretlines_api.deps import get_settings
 from fretlines_api.settings import Settings
@@ -29,6 +30,10 @@ def meta(settings: Annotated[Settings, Depends(get_settings)]) -> dict[str, Any]
         ],
         "instruments": [{"id": k, "label": v} for k, v in INSTRUMENT_LABELS.items()],
         "roles": [{"id": k, "label": v} for k, v in ROLE_LABELS.items()],
+        "tones": {
+            kind: [{"id": t, "label": TONE_LABELS[t]} for t in ("auto", *tones)]
+            for kind, tones in TONES.items()
+        },
         "difficulties": [{"id": k, "label": v} for k, v in DIFFICULTY_LABELS.items()],
         "presets": [
             {

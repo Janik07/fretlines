@@ -30,12 +30,14 @@ class JobRunner:
         database_url: str,
         device: str,
         lyrics: tuple[str, str] = ("off", "small"),
+        separation: str = "standard",
     ) -> None:
         self._engine = engine
         self._storage_dir = storage_dir
         self._database_url = database_url
         self._device = device
         self._lyrics = lyrics  # (режим, модель Whisper) — см. Settings.lyrics
+        self._separation = separation  # качество дорожек — см. Settings.separation
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.Lock()
         self._current: tuple[str, BaseProcess] | None = None
@@ -97,6 +99,7 @@ class JobRunner:
                     self._database_url,
                     self._device,
                     self._lyrics,
+                    self._separation,
                 ),
                 name=f"fretlines-analysis-{song_id[:8]}",
                 daemon=True,
@@ -168,6 +171,7 @@ def run_job(
     database_url: str,
     device: str,
     lyrics: tuple[str, str] = ("off", "small"),
+    separation: str = "standard",
 ) -> None:
     """Выполняется в отдельном процессе (spawn): разбор одной песни от и до."""
     logging.basicConfig(
@@ -212,6 +216,7 @@ def run_job(
             title=title,
             artist=artist,
             lyrics=options,
+            separation="max" if separation == "max" else "standard",
         )
     except AnalysisError as error:
         _finish(engine, song_id, "failed", error.code, error.message)

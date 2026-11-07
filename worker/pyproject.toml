@@ -6,6 +6,7 @@ requires-python = "==3.11.*"
 dependencies = [
     "fretlines-arranger",
     "beat-this>=1.1",
+    "audio-separator[cpu]>=0.48",  # вокал и инструментал моделями уровня UVR (RoFormer, MDX)
     "demucs>=4.1",
     "faster-whisper>=1.2",  # текст песни по вокальной дорожке
     "imageio-ffmpeg>=0.8",

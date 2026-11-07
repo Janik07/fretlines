@@ -396,10 +396,14 @@ class Harmony:
         return tuple(seen.values())
 
 
-def harmony(ctx: Context, instrument: Instrument, level: Difficulty) -> Harmony:
+def harmony(
+    ctx: Context, instrument: Instrument, level: Difficulty, power: bool = False
+) -> Harmony:
+    """power — с перегрузом: вместо полных аккордов пауэр-аккорды (основной тон + квинта)."""
     timeline = ctx.timeline(level)
-    voicings = choose_voicings([c.chord for c in timeline], instrument, level)
-    names = [_shape_name(c.chord, instrument, ctx.key) for c in timeline]
+    chords = [Chord(c.chord.root, "5") if power else c.chord for c in timeline]
+    voicings = choose_voicings(chords, instrument, level)
+    names = [_shape_name(chord, instrument, ctx.key) for chord in chords]
     return Harmony(timeline, voicings, names)
 
 

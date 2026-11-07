@@ -69,7 +69,7 @@ def decode(path: Path) -> Audio:
     return audio
 
 
-def encode_mp3(audio: Audio, path: Path, bitrate: str = "160k") -> None:
+def _encode(audio: Audio, path: Path, codec: list[str]) -> None:
     channels = audio.shape[0]
     interleaved = np.ascontiguousarray(audio.T, dtype=np.float32).tobytes()
     _run(
@@ -82,15 +82,21 @@ def encode_mp3(audio: Audio, path: Path, bitrate: str = "160k") -> None:
             str(SAMPLE_RATE),
             "-i",
             "pipe:0",
-            "-c:a",
-            "libmp3lame",
-            "-b:a",
-            bitrate,
+            *codec,
             "-y",
             str(path),
         ],
         data=interleaved,
     )
+
+
+def encode_mp3(audio: Audio, path: Path, bitrate: str = "160k") -> None:
+    _encode(audio, path, ["-c:a", "libmp3lame", "-b:a", bitrate])
+
+
+def encode_flac(audio: Audio, path: Path) -> None:
+    """Без потерь, 24 бита — для скачивания дорожек и инструментала."""
+    _encode(audio, path, ["-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24"])
 
 
 def to_mono(audio: Audio) -> NDArray[np.float32]:

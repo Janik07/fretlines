@@ -12,6 +12,9 @@ Status = Literal["queued", "running", "done", "failed"]
 RoleName = Literal["original", "melody", "bass", "rhythm", "pad", "percussion"]
 Level = Literal["easy", "medium", "full"]
 Kind = Literal["acoustic", "electric", "bass"]
+ToneName = Literal[
+    "auto", "steel", "nylon", "clean", "crunch", "drive", "lead", "jazz", "finger", "pick"
+]
 
 
 class ErrorOut(BaseModel):
@@ -81,6 +84,7 @@ class PlayerIn(BaseModel):
     capo: int = Field(default=0, ge=0, le=12)
     roles: list[RoleName] = Field(min_length=1, max_length=5)
     difficulty: Level = "medium"
+    tone: ToneName = "auto"
 
 
 class ArrangementIn(BaseModel):

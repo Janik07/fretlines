@@ -23,12 +23,14 @@ import { BandPanel } from "./BandPanel";
 import { ChordsView } from "./ChordsView";
 import { KaraokeStrip, LyricsSheet } from "./Lyrics";
 import { PlayerBar, type TrackMix } from "./PlayerBar";
+import { StemsView } from "./StemsView";
 import { coveredStems, defaultSetup } from "./setup";
 import { secondsToTick, tickToSeconds, usable, type Timeline } from "./timeline";
 import { download, useAlphaTab } from "./useAlphaTab";
 import { useRecording } from "./useRecording";
+import { useStudioSound } from "./useStudioSound";
 
-type Mode = "mine" | "score" | "chords" | "text";
+type Mode = "mine" | "score" | "chords" | "text" | "stems";
 
 function fileName(title: string): string {
   return title.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "fretlines";
@@ -147,6 +149,11 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
   }, [song.id, setup]);
 
   const players = useMemo(() => setup?.players ?? [], [setup?.players]);
+
+  // Новый режим — с начала страницы, а не с того места, где остановились табы.
+  useEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [mode]);
   const mineIndex = Math.max(0, players.findIndex((p) => p.id === setup?.mine));
   const visible = useMemo(() => (mode === "mine" ? [mineIndex] : null), [mode, mineIndex]);
   const controls = useAlphaTab(host, scroller, arrangement?.alphatex ?? null, visible, theme);
@@ -168,17 +175,28 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
   }, [sound, muted, players]);
   const recordSrc = sound === "parts" ? null : api.mixUrl(song.id, without);
   const recording = useRecording(controls, recordSrc, synced ? timeline : null, recordVolume);
+  // Партии студийным звуком (усилитель, кабинет, комната) — см. tone.ts. Синтезатор тогда только ведёт время.
+  const studio = useStudioSound(controls, arrangement, mix, synced && sound !== "record");
+  const partsSrc = sound === "record" ? null : studio.url;
+  const partsPlayer = useRecording(
+    controls,
+    partsSrc,
+    synced ? timeline : null,
+    1,
+    arrangement?.bar_seconds[0] ?? 0,
+  );
   const seconds = synced ? tickToSeconds(timeline, view.tick) : view.time / 1000;
 
   useEffect(() => {
     if (!view.ready || view.rendering) return;
     mix.forEach((state, index) => {
       // В режиме «Запись» синтезатор только ведёт время — партии не звучат.
-      controls.setTrackState(index, { ...state, mute: state.mute || sound === "record" });
+      const silent = sound === "record" || partsSrc !== null;
+      controls.setTrackState(index, { ...state, mute: state.mute || silent });
     });
     // controls пересоздаётся каждый рендер; важны только состояние микшера и готовность плеера.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mix, view.ready, view.rendering, arrangement, sound]);
+  }, [mix, view.ready, view.rendering, arrangement, sound, partsSrc]);
 
   const toggleMineMute = useCallback(() => {
     setMix((current) =>
@@ -187,10 +205,12 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
   }, [mineIndex]);
 
   const { unlock } = recording;
+  const { unlock: unlockParts } = partsPlayer;
   const playPause = useCallback(() => {
     unlock();
+    unlockParts();
     controls.playPause();
-  }, [unlock, controls]);
+  }, [unlock, unlockParts, controls]);
 
   const seekSeconds = useCallback(
     (value: number) => {
@@ -248,17 +268,18 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
   };
   const modes: { value: Mode; label: string }[] = [
     { value: "mine", label: narrow ? "Моя" : "Моя партия" },
-    { value: "score", label: "Партитура" },
+    { value: "score", label: narrow ? "Все" : "Партитура" },
     { value: "chords", label: "Аккорды" },
   ];
   if (lyrics) modes.push({ value: "text", label: "Текст" });
+  if (synced) modes.push({ value: "stems", label: "Дорожки" });
 
   return (
     <div className="flex h-dvh flex-col">
       <Header route={route} />
       <div className="flex min-h-0 flex-1">
         <aside
-          className={`${bandOpen ? "fixed inset-0 z-40 block bg-bg" : "hidden"} w-full shrink-0 overflow-y-auto border-r border-line p-5 lg:static lg:block lg:w-[360px]`}
+          className={`${bandOpen ? "fixed inset-0 z-[1100] block bg-bg" : "hidden"} w-full shrink-0 overflow-y-auto border-r border-line p-5 lg:static lg:block lg:w-[360px]`}
           aria-label="Состав группы"
         >
           {bandOpen && (
@@ -372,17 +393,40 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
                 <LyricsSheet lyrics={lyrics} arrangement={arrangement} seconds={seconds} onSeek={seekSeconds} />
               </motion.div>
             )}
+            {mode === "stems" && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: EASE_FILM }}
+              >
+                <StemsView
+                  songId={song.id}
+                  analysis={analysis}
+                  sound={sound}
+                  muted={muted}
+                  playing={view.playing}
+                  onListen={(next) => {
+                    update({ sound: "record", muted: next });
+                    if (!view.playing) playPause();
+                  }}
+                  onMuted={(next) => {
+                    update({ muted: next });
+                  }}
+                  onReanalyze={reanalyze}
+                />
+              </motion.div>
+            )}
             {/* Табы остаются в разметке (alphaTab не пересчитывает раскладку), просто скрыты. */}
             <div
               ref={host}
-              aria-hidden={mode === "chords" || mode === "text"}
-              className={`at-surface px-2 pt-2 pb-24 ${mode === "chords" || mode === "text" ? "invisible max-h-0 overflow-hidden" : ""}`}
+              aria-hidden={mode === "chords" || mode === "text" || mode === "stems"}
+              className={`at-surface px-2 pt-2 pb-24 ${mode === "chords" || mode === "text" || mode === "stems" ? "invisible max-h-0 overflow-hidden" : ""}`}
             />
             {view.error && (
               <p className="m-6 text-small text-danger">Не получилось показать табы: {view.error}</p>
             )}
           </div>
-          {lyrics && karaoke && mode !== "text" && synced && (
+          {lyrics && karaoke && mode !== "text" && mode !== "stems" && synced && (
             <KaraokeStrip lyrics={lyrics} seconds={seconds} onSeek={seekSeconds} />
           )}
         </main>
@@ -411,6 +455,7 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
         onRecordVolume={setRecordVolume}
         recordLoading={sound !== "parts" && recording.loading}
         recordError={sound !== "parts" ? recording.error : null}
+        studio={studio}
         lyricsAvailable={lyrics !== null}
         karaoke={karaoke}
         onKaraoke={setKaraoke}

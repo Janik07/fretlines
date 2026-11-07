@@ -69,3 +69,31 @@ def test_mix_without_a_stem(client: TestClient, ready_song: str, settings: Setti
     whole = client.get(f"/api/songs/{ready_song}/mix")
     assert whole.status_code == 200
     assert whole.content == (stems / "mix.mp3").read_bytes()
+
+
+def test_stem_downloads_and_instrumental(
+    client: TestClient, ready_song: str, settings: Settings
+) -> None:
+    stems = settings.song_dir(ready_song) / "stems"
+    (stems / "flac").mkdir(parents=True)
+    t = np.arange(SAMPLE_RATE // 4) / SAMPLE_RATE
+    tone = (0.1 * np.sin(2 * np.pi * 330 * t)).astype(np.float32)
+    for name in ["mix", "vocals", "bass", "drums", "guitar", "piano", "other", "instrumental"]:
+        encode_mp3(np.stack([tone, tone]), stems / f"{name}.mp3", bitrate="64k")
+    (stems / "flac" / "instrumental.flac").write_bytes(b"fLaC-test")
+    (stems / "flac" / "vocals.flac").write_bytes(b"fLaC-test")
+
+    flac = client.get(f"/api/songs/{ready_song}/download/instrumental?format=flac")
+    assert flac.status_code == 200
+    assert "attachment" in flac.headers["content-disposition"]
+    assert client.get(f"/api/songs/{ready_song}/download/guitar?format=flac").status_code == 404
+    assert client.get(f"/api/songs/{ready_song}/download/guitar?format=mp3").status_code == 200
+    # «Без вокала» — это готовый инструментал, а не сведение дорожек.
+    karaoke = client.get(f"/api/songs/{ready_song}/mix?without=vocals")
+    assert karaoke.content == (stems / "instrumental.mp3").read_bytes()
+    archive = client.get(f"/api/songs/{ready_song}/download-all")
+    assert archive.status_code == 200
+    assert archive.content[:2] == b"PK"
+    body = client.get(f"/api/songs/{ready_song}/analysis").json()
+    assert body["lossless"] == ["instrumental", "vocals"]
+    assert body["separation"]["quality"] == "standard"
