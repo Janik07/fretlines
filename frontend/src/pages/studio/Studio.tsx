@@ -155,7 +155,11 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
     scroller.current?.scrollTo({ top: 0 });
   }, [mode]);
   const mineIndex = Math.max(0, players.findIndex((p) => p.id === setup?.mine));
-  const visible = useMemo(() => (mode === "mine" ? [mineIndex] : null), [mode, mineIndex]);
+  // Какие табы показаны, решают только режимы с табами: в «Аккордах», «Тексте» и «Дорожках»
+  // остаётся прежний выбор — иначе alphaTab перерисует скрытые табы и прокрутит страницу к курсору.
+  const [tabsMode, setTabsMode] = useState<"mine" | "score">("mine");
+  if ((mode === "mine" || mode === "score") && mode !== tabsMode) setTabsMode(mode);
+  const visible = useMemo(() => (tabsMode === "mine" ? [mineIndex] : null), [tabsMode, mineIndex]);
   const controls = useAlphaTab(host, scroller, arrangement?.alphatex ?? null, visible, theme);
   const { view } = controls;
 
