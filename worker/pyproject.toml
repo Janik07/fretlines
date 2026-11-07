@@ -17,6 +17,9 @@ dependencies = [
     "soundfile>=0.13",
     "torch>=2.11,<2.12",  # torchaudio выпускается в паре с torch той же версии
     "torchaudio>=2.11",
+    # torchvision нужен audio-separator; должен быть той же сборки, что torch (CPU или CUDA),
+    # иначе его операторы не загружаются («torchvision::nms does not exist»).
+    "torchvision>=0.26,<0.27",
     "torchcrepe>=0.0.24",
     "yt-dlp[default,deno]>=2026.10",
 ]
@@ -25,6 +28,7 @@ dependencies = [
 fretlines-arranger = { workspace = true }
 torch = { index = "pytorch-cpu" }
 torchaudio = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [build-system]
 requires = ["hatchling"]

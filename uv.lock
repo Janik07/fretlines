@@ -479,6 +479,7 @@ dependencies = [
     { name = "torch" },
     { name = "torchaudio" },
     { name = "torchcrepe" },
+    { name = "torchvision" },
     { name = "yt-dlp", extra = ["default", "deno"] },
 ]
 
@@ -498,6 +499,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.11,<2.12", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchaudio", specifier = ">=2.11", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchcrepe", specifier = ">=0.0.24" },
+    { name = "torchvision", specifier = ">=0.26,<0.27", index = "https://download.pytorch.org/whl/cpu" },
     { name = "yt-dlp", extras = ["default", "deno"], specifier = ">=2026.10" },
 ]
 
@@ -1413,16 +1415,16 @@ wheels = [
 
 [[package]]
 name = "torchvision"
-version = "0.26.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.26.0+cpu"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
 dependencies = [
     { name = "numpy" },
     { name = "pillow" },
     { name = "torch" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/45/57bbf9e216850d065e66dd31a50f57424b607f1d878ab8956e56a1f4e36b/torchvision-0.26.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:fd10b5f994c210f4f6d6761cf686f82d748554adf486cb0979770c3252868c8f", size = 7519925, upload-time = "2026-03-23T18:12:53.283Z" },
-    { url = "https://files.pythonhosted.org/packages/10/58/ed8f7754299f3e91d6414b6dc09f62b3fa7c6e5d63dfe48d69ab81498a37/torchvision-0.26.0-cp311-cp311-win_amd64.whl", hash = "sha256:de6424b12887ad884f39a0ee446994ae3cd3b6a00a9cafe1bead85a031132af0", size = 3983834, upload-time = "2026-03-23T18:13:00.224Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchvision-0.26.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:7fcc4584e9f2f8914f898a01437f25b16222fb0bfb3fdeba59cb1b0c640b0995", upload-time = "2026-03-23T15:36:09Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchvision-0.26.0%2Bcpu-cp311-cp311-win_amd64.whl", hash = "sha256:f0c80af8e2807d52f3d480d9828d550f097ad55589f28aab4d65471b3d636359", upload-time = "2026-03-23T15:36:09Z" },
 ]
 
 [[package]]
