@@ -157,7 +157,8 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
             <button type="button" onClick={() => { navigate("/library"); }} className="icon-btn -ml-2" aria-label="К разборам">
               <Icon name="back" size={18} />
             </button>
-            <div className="min-w-0 flex-1">
+            {/* Не уже 220 px: на узком экране тональность уходит на следующую строку, а не съедает название. */}
+            <div className="min-w-[220px] flex-1">
               <h1 className="truncate font-display text-[34px] leading-none font-[780] uppercase">{song.title}</h1>
               <p className="mt-1 flex items-center gap-2 text-small text-text-dim">
                 <span className="truncate">{song.artist ?? (song.source_kind === "url" ? "по ссылке" : "свой файл")}</span>
