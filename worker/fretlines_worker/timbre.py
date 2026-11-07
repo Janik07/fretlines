@@ -171,41 +171,54 @@ def guitar_tone(scores: dict[str, float]) -> str:
     return ""
 
 
+# Жанры по группам: ответ модели на жанр песни невелик (у главного — около 0.05–0.1 на
+# 10-секундных кусках), поэтому важна не величина, а какая группа выше остальных.
+GENRES: dict[str, tuple[str, ...]] = {
+    "pop": ("pop", "indie"),
+    "rock": ("rock", "punk", "grunge"),
+    "metal": ("metal",),
+    "psychedelic": ("psychedelic",),
+    "funk": ("funk", "disco", "soul", "rnb"),
+    "jazz": ("jazz",),
+    "blues": ("blues",),
+    "ambient": ("ambient", "new_age"),
+}
+_GENRE_MIN = 0.03  # слабее — жанр не узнан, тембр решают перегруз и эффекты
+
+
+def _genre(mix: dict[str, float]) -> str:
+    scores = {name: sum(mix.get(c, 0.0) for c in members) for name, members in GENRES.items()}
+    best = max(scores, key=lambda name: scores[name])
+    return best if scores[best] >= _GENRE_MIN else ""
+
+
 def guitar_sound(guitar: dict[str, float], mix: dict[str, float], single_share: float) -> str:
     """Какой пресет электро ближе к записи; пусто — гитара не электро.
 
     guitar — ответы модели на гитарную дорожку (перегруз и эффекты слышнее всего там), mix — на
     всю песню (жанр модель узнаёт по миксу целиком), single_share — доля ударов из одной ноты
     (соло и риффы). Жанр подсказывает, как обычно звучит гитара: фанк — чистый звук с
-    компрессором, психоделика — фузз, эмбиент — дилей и большой ревер. Пороги — стартовые:
-    у главного жанра песни модель обычно даёт 0.2–0.6, у остальных — меньше 0.1.
+    компрессором, психоделика — фузз, эмбиент — дилей и большой ревер. Пороги эффектов выше
+    того, что модель даёт на обычных дорожках: эхо и ревер там 0.03–0.06, хорус — до 0.08.
     """
     tone = guitar_tone(guitar)
+    genre = _genre(mix)
     if tone == "distorted":
-        if guitar.get("metal", 0) >= 0.2 or mix.get("metal", 0) >= 0.25:
+        if guitar.get("metal", 0) >= 0.2 or genre == "metal":
             return "metal"
-        if mix.get("psychedelic", 0) >= 0.1:
+        if genre == "psychedelic":
             return "fuzz"
         if single_share >= 0.8:
             return "lead"
         if guitar["distortion"] < 0.25:
-            return "blues" if mix.get("blues", 0) >= 0.15 else "crunch"
+            return "blues" if genre == "blues" else "crunch"
         return "drive"
     if tone != "clean":
         return ""
-    if mix.get("jazz", 0) >= 0.15:
-        return "jazz"
-    groove = mix.get("funk", 0) + mix.get("disco", 0) + mix.get("soul", 0) + mix.get("rnb", 0)
-    if mix.get("funk", 0) >= 0.12 or groove >= 0.3:
-        return "funk"
-    if (
-        mix.get("ambient", 0) + mix.get("new_age", 0) >= 0.12
-        or guitar.get("echo", 0) >= 0.15
-        or guitar.get("reverb", 0) >= 0.3
-    ):
+    if genre in ("jazz", "funk", "ambient", "blues"):
+        return genre
+    if guitar.get("echo", 0) >= 0.12 or guitar.get("reverb", 0) >= 0.2:
         return "ambient"
-    if guitar.get("chorus", 0) >= 0.08:
+    if guitar.get("chorus", 0) >= 0.15:
         return "chorus"
-    if mix.get("blues", 0) >= 0.25:
-        return "blues"
     return "clean"

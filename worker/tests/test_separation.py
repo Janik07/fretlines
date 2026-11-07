@@ -100,24 +100,30 @@ def _scores(**values: float) -> dict[str, float]:
 
 def test_clean_guitar_preset_follows_the_genre_and_effects() -> None:
     clean = _scores()
-    assert guitar_sound(clean, {"jazz": 0.4}, 0.3) == "jazz"
-    assert guitar_sound(clean, {"funk": 0.2}, 0.3) == "funk"
-    assert guitar_sound(clean, {"disco": 0.15, "soul": 0.1, "rnb": 0.1}, 0.3) == "funk"
-    assert guitar_sound(clean, {"ambient": 0.15}, 0.3) == "ambient"
-    assert guitar_sound(_scores(echo=0.3), {"pop": 0.4}, 0.3) == "ambient"
-    assert guitar_sound(_scores(chorus=0.12), {"pop": 0.4}, 0.3) == "chorus"
-    assert guitar_sound(clean, {"pop": 0.5}, 0.3) == "clean"
+    assert guitar_sound(clean, {"jazz": 0.06, "pop": 0.03}, 0.3) == "jazz"
+    assert guitar_sound(clean, {"funk": 0.03, "soul": 0.03, "pop": 0.05}, 0.3) == "funk"
+    assert guitar_sound(clean, {"ambient": 0.04, "new_age": 0.02, "pop": 0.03}, 0.3) == "ambient"
+    assert guitar_sound(_scores(echo=0.2), {"pop": 0.08}, 0.3) == "ambient"
+    assert guitar_sound(_scores(chorus=0.2), {"pop": 0.08}, 0.3) == "chorus"
+    # Ответы модели на чистую электро в поп-балладе (облачная песня «videoplayback»).
+    ballad = _scores(distortion=0.076, chorus=0.021, reverb=0.035, echo=0.037)
+    pop = {"pop": 0.07, "indie": 0.015, "rock": 0.017, "soul": 0.0196, "rnb": 0.0098}
+    assert guitar_sound(ballad, pop, 0.3) == "clean"
+    assert guitar_sound(clean, {"jazz": 0.01}, 0.3) == "clean"  # жанр не узнан
 
 
 def test_distorted_guitar_preset_follows_gain_genre_and_playing() -> None:
     heavy = _scores(distortion=0.45)
     assert guitar_sound(_scores(distortion=0.4, metal=0.3), {}, 0.2) == "metal"
-    assert guitar_sound(heavy, {"metal": 0.4}, 0.2) == "metal"
-    assert guitar_sound(heavy, {"psychedelic": 0.2}, 0.2) == "fuzz"
-    assert guitar_sound(heavy, {"rock": 0.5}, 0.9) == "lead"  # одни одиночные ноты — соло
-    assert guitar_sound(heavy, {"rock": 0.5}, 0.2) == "drive"
-    assert guitar_sound(_scores(distortion=0.18), {"rock": 0.5}, 0.2) == "crunch"
-    assert guitar_sound(_scores(distortion=0.18), {"blues": 0.3}, 0.2) == "blues"
+    assert guitar_sound(heavy, {"metal": 0.08, "rock": 0.04}, 0.2) == "metal"
+    assert guitar_sound(heavy, {"psychedelic": 0.06, "rock": 0.03}, 0.2) == "fuzz"
+    assert guitar_sound(heavy, {"rock": 0.1}, 0.9) == "lead"  # одни одиночные ноты — соло
+    assert guitar_sound(heavy, {"rock": 0.1}, 0.2) == "drive"
+    light = _scores(distortion=0.16, chorus=0.083, reverb=0.058, echo=0.048)
+    # Поп с лёгким перегрузом (облачная «video 2026-11-06»): жанр — поп, звук — кранч.
+    mix = {"pop": 0.089, "indie": 0.039, "rock": 0.027, "rnb": 0.037, "soul": 0.032}
+    assert guitar_sound(light, mix, 0.2) == "crunch"
+    assert guitar_sound(light, {"blues": 0.05, "rock": 0.02}, 0.2) == "blues"
 
 
 def test_no_electric_preset_for_acoustic_or_silence() -> None:
