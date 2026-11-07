@@ -2,6 +2,7 @@
 
 import argparse
 import socket
+import sys
 import threading
 import webbrowser
 
@@ -11,9 +12,16 @@ from fretlines_api.settings import load_settings
 
 
 def _free_port(host: str, preferred: int) -> int:
-    """Если порт занят (например, другой программой), берём следующий свободный."""
+    """Если порт занят (например, другой программой), берём следующий свободный.
+
+    Проверяем так же, как порт потом займёт uvicorn, — с SO_REUSEADDR: иначе после перезапуска
+    порт кажется занятым, пока висят закрытые соединения (TIME_WAIT), и сервер уезжает на
+    соседний порт. На Windows этот флаг значит другое (разрешает занять чужой порт) — там без него.
+    """
     for port in range(preferred, preferred + 20):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            if sys.platform != "win32":
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind((host, port))
             except OSError:

@@ -20,6 +20,15 @@ uv run --no-sync python scripts/fetch_models.py
 
 echo "== Перезапуск"
 pkill -f "python -m fretlines_api" || true
-sleep 2
+# Старый сервер дописывает начатые ответы (банк звуков — 40 МБ) и держит порт: ждём, пока
+# он освободится, — Codespaces пробрасывает только 8080.
+for _ in $(seq 1 30); do
+  (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null || break
+  sleep 1
+done
 bash .devcontainer/start.sh
-echo "== Fretlines обновлён и перезапущен"
+for _ in $(seq 1 30); do
+  curl -sf -o /dev/null http://127.0.0.1:8080/api/health && break
+  sleep 1
+done
+echo "== Fretlines обновлён и перезапущен: $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/health)"
