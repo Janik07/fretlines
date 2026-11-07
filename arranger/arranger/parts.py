@@ -688,6 +688,28 @@ def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h
     return "line" if outside >= _LINE_SHARE * total else "pick"
 
 
+def _without_stray_highs(items: list[_Group]) -> list[_Group]:
+    """Убираем ноты, оторванные от остальных в такте больше чем на октаву вверх.
+
+    Так звучат обертоны и просочившийся вокал: гитарист не прыгает на две октавы ради одной
+    ноты, а в табах она утаскивает руку на 15-й лад.
+    """
+    pitches = sorted({p for g in items for p in g.pitches})
+    stray: set[int] = set()
+    while len(pitches) >= 2 and pitches[-1] - pitches[-2] > 12:
+        stray.add(pitches.pop())
+    if not stray:
+        return items
+    out: list[_Group] = []
+    for group in items:
+        keep = [i for i, p in enumerate(group.pitches) if p not in stray]
+        if keep:
+            pitches_kept = tuple(group.pitches[i] for i in keep)
+            loudness = tuple(group.loudness[i] for i in keep)
+            out.append(_Group(group.start, group.end, pitches_kept, loudness))
+    return out
+
+
 def _snap(group: _Group, shape: Sequence[tuple[int, int, int]]) -> list[tuple[int, int]]:
     """Ноты удара → струны аппликатуры: та же высота, иначе тот же тон в соседней октаве.
 
@@ -732,16 +754,17 @@ def original_part(
     (рифф, соло, где много нот мимо аккорда) раскладывается по грифу нота в ноту.
     Возвращает и аккорды с выбранными аппликатурами — для диаграмм над табами.
     """
-    groups = original_groups(ctx, instrument, level)
+    per_bar: dict[int, list[_Group]] = {}
+    for group in original_groups(ctx, instrument, level):
+        per_bar.setdefault(group.start // ctx.bar_steps, []).append(group)
+    per_bar = {bar: _without_stray_highs(items) for bar, items in per_bar.items()}
+    groups = [g for bar in sorted(per_bar) for g in per_bar[bar]]
     if not groups:
         return [], h
     if level != "easy":  # на «легко» — самые удобные аппликатуры, позиция записи не важна
         h = recorded_harmony(groups, h, instrument, level)
     at = _segment_index(h.timeline)
-    per_bar: dict[int, list[_Group]] = {}
-    for group in groups:
-        per_bar.setdefault(group.start // ctx.bar_steps, []).append(group)
-    texture = {bar: _texture(items, at, h) for bar, items in per_bar.items()}
+    texture = {bar: _texture(items, at, h) for bar, items in per_bar.items() if items}
     if level == "easy":  # на «легко» в бое — только удары на доли
         groups = [
             g

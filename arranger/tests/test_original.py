@@ -78,6 +78,15 @@ def test_picked_notes_stay_in_the_chord_and_stray_ones_are_dropped(song: Transcr
     assert all(b.stroke is None for b in part.beats)  # это перебор, а не бой
 
 
+def test_note_an_octave_above_everything_else_is_dropped(song: Transcription) -> None:
+    pattern = [48, 55, 60, 64, 60, 55, 84, 55]  # C6 — обертон, его не играют
+    notes = tuple(Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(pattern))
+    part = arrange(replace(song, guitar=notes, guitar_source="guitar"), [_player("full")]).parts[0]
+    pitches = [n.pitch for b in part.beats for n in b.notes]
+    assert max(pitches) <= 64
+    assert max(n.fret for b in part.beats for n in b.notes) <= 5
+
+
 def test_easy_level_keeps_only_strums_on_the_beat(song: Transcription) -> None:
     part = arrange(_strummed_then_riff(song), [_player("easy")]).parts[0]
     strums = [b for b in part.beats if b.start < 2 * 4 * STEPS_PER_BEAT]
