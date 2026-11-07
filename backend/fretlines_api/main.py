@@ -12,7 +12,7 @@ from starlette.types import Scope
 from fretlines_api import __version__
 from fretlines_api.db import create_db_engine, init_db
 from fretlines_api.jobs import JobRunner
-from fretlines_api.routes import health, meta, songs
+from fretlines_api.routes import health, meta, songs, soundfont
 from fretlines_api.settings import Settings, load_settings
 
 _NOT_BUILT = """<!doctype html><html lang="ru"><meta charset="utf-8"><title>Fretlines</title>
@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None, *, run_jobs: bool = True) -> Fa
             app_settings.storage_dir.resolve(),
             app_settings.sqlalchemy_url,
             app_settings.device,
+            (app_settings.lyrics, app_settings.lyrics_model),
         )
         if run_jobs:
             runner.start()
@@ -71,7 +72,7 @@ def create_app(settings: Settings | None = None, *, run_jobs: bool = True) -> Fa
         redoc_url=None,
         openapi_url="/api/openapi.json",
     )
-    for module in (health, meta, songs):
+    for module in (health, meta, songs, soundfont):
         app.include_router(module.router, prefix="/api")
 
     dist = Path(app_settings.frontend_dir)

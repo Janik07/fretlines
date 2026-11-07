@@ -76,16 +76,37 @@ def track(
     return times, midi
 
 
+def onsets(mono: NDArray[np.float32], settings: LineSettings) -> NDArray[np.float64]:
+    """Атаки звука (секунды): по ним режутся повторы одной высоты — бас восьмыми, слоги."""
+    import librosa
+
+    audio = librosa.resample(mono, orig_sr=SAMPLE_RATE, target_sr=CREPE_SR)
+    hop = int(CREPE_SR * settings.hop_seconds)
+    found = librosa.onset.onset_detect(
+        y=audio, sr=CREPE_SR, hop_length=hop, units="time", backtrack=False, delta=0.12
+    )
+    return np.asarray(found, dtype=np.float64)
+
+
 def segment(
-    times: NDArray[np.float64], midi: NDArray[np.float64], settings: LineSettings
+    times: NDArray[np.float64],
+    midi: NDArray[np.float64],
+    settings: LineSettings,
+    attacks: NDArray[np.float64] | None = None,
 ) -> list[tuple[float, float, int]]:
-    """Кадры → ноты (начало, конец в секундах, высота)."""
+    """Кадры → ноты (начало, конец в секундах, высота).
+
+    attacks — атаки звука: если на ровной высоте случилась атака, это новая нота той же высоты.
+    """
     notes: list[tuple[float, float, int]] = []
     hop = settings.hop_seconds
     max_wobble_frames = max(3, int(0.06 / hop))
     start: int | None = None
     values: list[float] = []
     drift = 0
+    cuts: set[int] = set()
+    if attacks is not None and attacks.size:
+        cuts = {round(t / hop) for t in attacks}
 
     def close(begin: int | None, end_index: int, pitches: list[float]) -> None:
         if begin is None or not pitches or (end_index - begin) * hop < settings.min_note:
@@ -100,6 +121,10 @@ def segment(
             continue
         if start is None:
             start, values, drift = i, [float(value)], 0
+            continue
+        if i in cuts and (i - start) * hop >= settings.min_note and drift == 0:
+            close(start, i, values)
+            start, values = i, [float(value)]
             continue
         center = float(np.median(values[-25:]))
         if abs(value - center) > 0.6:
@@ -131,4 +156,4 @@ def transcribe(
     mono: NDArray[np.float32], grid: BeatGrid, settings: LineSettings, device: str
 ) -> tuple[Note, ...]:
     times, midi = track(mono, settings, device)
-    return to_notes(segment(times, midi, settings), grid)
+    return to_notes(segment(times, midi, settings, onsets(mono, settings)), grid)

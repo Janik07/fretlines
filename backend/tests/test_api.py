@@ -17,7 +17,7 @@ def test_health_reports_components(client: TestClient) -> None:
 def test_meta_lists_tunings_and_presets(client: TestClient) -> None:
     body = client.get("/api/meta").json()
     assert {t["id"] for t in body["tunings"]} >= {"standard", "drop-d", "bass-standard"}
-    assert [p["id"] for p in body["presets"]] == ["solo", "duo", "trio", "quartet"]
+    assert [p["id"] for p in body["presets"]] == ["record", "solo", "duo", "trio", "quartet"]
     standard = next(t for t in body["tunings"] if t["id"] == "standard")
     assert standard["notes"] == ["E4", "B3", "G3", "D3", "A2", "E2"]
 

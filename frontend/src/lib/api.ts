@@ -1,7 +1,9 @@
 /** Клиент API (backend/fretlines_api/routes). Ошибки сервера приходят по-русски в `detail`. */
 
 export type SongStatus = "queued" | "running" | "done" | "failed";
-export type Role = "melody" | "bass" | "rhythm" | "pad" | "percussion";
+export type Role = "original" | "melody" | "bass" | "rhythm" | "pad" | "percussion";
+export type StemName = "vocals" | "bass" | "drums" | "guitar" | "piano" | "other";
+export const STEMS: StemName[] = ["vocals", "guitar", "bass", "drums", "piano", "other"];
 export type Difficulty = "easy" | "medium" | "full";
 export type InstrumentKind = "acoustic" | "electric" | "bass";
 
@@ -33,10 +35,17 @@ export interface Player {
   difficulty: Difficulty;
 }
 
+/** Что звучит в плеере: партии синтезатором, запись или запись без партий группы + партии. */
+export type SoundSource = "parts" | "record" | "together";
+
 export interface StudioSetup {
   players: Player[];
   transpose: number;
   mine: string | null;
+  sound?: SoundSource;
+  /** Дорожки записи, которые заглушены (в режиме «Вместе» — сверх тех, что играет группа). */
+  muted?: StemName[];
+  lyricsInTabs?: boolean;
 }
 
 export interface Meta {
@@ -49,18 +58,41 @@ export interface Meta {
 }
 
 export interface Analysis {
+  version: number;
+  /** Разбор сделан старой версией: нет темпа по тактам, гитары из записи и текста. */
+  outdated: boolean;
   duration: number;
   tempo: number;
   beats_per_bar: number;
   bars: number;
   bar_times: number[];
+  bar_seconds: number[];
   key: string;
   key_confidence: number | null;
   stems: string[];
   warnings: string[];
-  counts: { chords: number; melody: number; bass: number };
+  guitar_source: "" | "guitar" | "keys";
+  counts: { chords: number; melody: number; bass: number; guitar: number; lyrics_lines: number };
   device: string | null;
   timings: Record<string, number>;
+}
+
+export interface LyricWord {
+  text: string;
+  start: number;
+  end: number;
+}
+
+export interface LyricLine {
+  start: number;
+  end: number;
+  words: LyricWord[];
+}
+
+export interface Lyrics {
+  source: "lrclib" | "lrclib+whisper" | "whisper" | "edited" | null;
+  language?: string | null;
+  lines: LyricLine[];
 }
 
 export interface ChordShape {
@@ -93,6 +125,8 @@ export interface Arrangement {
   parts: PartInfo[];
   chart: { offset: number; name: string }[][];
   capo_hints: Record<string, { capo: number; score: number; barre_chords: number }[]>;
+  /** Начала тактов в секундах записи и конец последнего. Пусто — старый разбор. */
+  bar_seconds: number[];
   alphatex: string;
 }
 
@@ -156,7 +190,16 @@ export const api = {
   arrangement: (id: string, setup: StudioSetup) =>
     request<Arrangement>(
       `/songs/${id}/arrangement`,
-      json("POST", { players: setup.players, transpose: setup.transpose }),
+      json("POST", {
+        players: setup.players,
+        transpose: setup.transpose,
+        lyrics_in_tabs: setup.lyricsInTabs ?? true,
+      }),
     ),
+  lyrics: (id: string) => request<Lyrics>(`/songs/${id}/lyrics`),
+  saveLyrics: (id: string, lyrics: Lyrics) => request<Lyrics>(`/songs/${id}/lyrics`, json("PUT", lyrics)),
   audioUrl: (id: string, stem: string) => `/api/songs/${id}/audio/${stem}`,
+  /** Запись без выбранных дорожек (сводится на сервере один раз и кэшируется). */
+  mixUrl: (id: string, without: StemName[]) =>
+    without.length ? `/api/songs/${id}/mix?without=${[...without].sort().join(",")}` : `/api/songs/${id}/mix`,
 };

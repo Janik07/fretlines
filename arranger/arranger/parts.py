@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
 
-from arranger.fingering import finger_line
+from arranger.fingering import Assignment, finger_events, finger_line
 from arranger.instruments import Instrument
 from arranger.model import (
     STEPS_PER_BEAT,
@@ -505,6 +505,159 @@ def percussion_part(ctx: Context, instrument: Instrument, level: Difficulty) -> 
         notes = tuple(_note(instrument, s, 0, dead=True) for s in strings)
         stroke: Stroke = "down" if (t % bar) % 2 == 0 else "up"
         beats.append(TabBeat(t, length, notes, stroke))
+    return beats
+
+
+# ─── Как в записи: ноты гитары из оригинала ───────────────────────────────
+
+# Сколько нот разом оставлять там, где в записи не бой, а перебор или рифф.
+_ORIGINAL_VOICES: dict[Difficulty, int] = {"easy": 1, "medium": 2, "full": 6}
+_STRUM_NOTES = 3  # столько нот на одной доле — это удар по аккорду
+# Ноты одного удара по струнам расходятся на 20–40 мс: всё, что ближе этого (в долях), — один удар.
+_STRUM_SPREAD = 0.1
+# Такт считается «боем», если в нём столько ударов (созвучий от двух нот) от всех событий.
+_STRUM_BAR_SHARE = 0.6
+
+
+@dataclass(frozen=True, slots=True)
+class _Group:
+    start: int
+    end: int
+    pitches: tuple[int, ...]  # снизу вверх
+    loudness: tuple[int, ...]
+
+
+def original_groups(ctx: Context, instrument: Instrument, level: Difficulty) -> list[_Group]:
+    """Ноты записи → созвучия на сетке уровня, перенесённые в диапазон инструмента."""
+    grid = GRID[level]
+    low = instrument.lowest
+    high = instrument.open_pitch(1) + min(MAX_FRET[level], instrument.frets)
+    # Сначала собираем ноты одного удара (они расходятся на десятки мс), потом — на сетку:
+    # иначе удар разваливается на два соседних шага с половиной нот в каждом.
+    clusters: list[list[Note]] = []
+    for note in sorted(ctx.tx.guitar, key=lambda n: n.start):
+        if clusters and note.start - clusters[-1][0].start <= _STRUM_SPREAD:
+            clusters[-1].append(note)
+        else:
+            clusters.append([note])
+
+    slots: dict[int, dict[int, int]] = {}  # шаг → высота → громкость
+    ends: dict[int, int] = {}
+    for cluster in clusters:
+        start = round(cluster[0].start * STEPS_PER_BEAT / grid) * grid
+        if not 0 <= start < ctx.total_steps:
+            continue
+        for note in cluster:
+            end = round(note.end * STEPS_PER_BEAT / grid) * grid
+            end = min(max(start + grid, end), ctx.total_steps)
+            pitch = note.pitch + ctx.transpose
+            while pitch < low:
+                pitch += 12
+            while pitch > high:
+                pitch -= 12
+            if pitch < low:
+                continue
+            slot = slots.setdefault(start, {})
+            slot[pitch] = max(slot.get(pitch, 0), note.velocity)
+            ends[start] = max(ends.get(start, start + grid), end)
+
+    starts = sorted(slots)
+    groups: list[_Group] = []
+    for i, start in enumerate(starts):
+        nxt = starts[i + 1] if i + 1 < len(starts) else ctx.total_steps
+        end = min(nxt, ends[start])
+        # Короткие паузы внутри фразы на простых уровнях не пишем: нота тянется до следующей.
+        if level != "full" and nxt - end <= STEPS_PER_BEAT:
+            end = nxt
+        pitches = tuple(sorted(slots[start]))
+        groups.append(
+            _Group(start, max(end, start + 1), pitches, tuple(slots[start][p] for p in pitches))
+        )
+    return groups
+
+
+def _thin(group: _Group, voices: int) -> tuple[int, ...]:
+    """Оставляем верх (мелодию), низ (бас) и самые громкие ноты между ними."""
+    pitches = list(group.pitches)
+    if len(pitches) <= voices:
+        return tuple(pitches)
+    if voices == 1:
+        return (pitches[-1],)
+    keep = {pitches[0], pitches[-1]}
+    middle = sorted(
+        (p for p in pitches[1:-1]),
+        key=lambda p: -group.loudness[group.pitches.index(p)],
+    )
+    keep.update(middle[: voices - 2])
+    return tuple(sorted(keep))
+
+
+def original_part(
+    ctx: Context, instrument: Instrument, level: Difficulty, h: Harmony
+) -> list[TabBeat]:
+    """Партия «как в записи»: ритм и ноты гитары оригинала.
+
+    Там, где в записи бьют по аккорду (три ноты и больше разом), берётся удобная аппликатура
+    этого аккорда — так табы чище, а звучит так же. Рифы и переборы раскладываются по грифу
+    нота в ноту.
+    """
+    groups = original_groups(ctx, instrument, level)
+    if not groups:
+        return []
+    # Бой или перебор решаем по такту целиком: в бое число нот на удар скачет (часть струн
+    # модель не слышит), и по одному удару табы превращаются в мешанину аккордов и двузвучий.
+    per_bar: dict[int, list[_Group]] = {}
+    for group in groups:
+        per_bar.setdefault(group.start // ctx.bar_steps, []).append(group)
+    strummed_bars = {
+        bar
+        for bar, items in per_bar.items()
+        if len(items) >= 2
+        and sum(len(g.pitches) >= 2 for g in items) >= _STRUM_BAR_SHARE * len(items)
+        and sum(len(g.pitches) >= _STRUM_NOTES for g in items) >= 1
+    }
+    if level == "easy":  # на «легко» в бое — только удары на доли
+        groups = [
+            g
+            for g in groups
+            if g.start // ctx.bar_steps not in strummed_bars or g.start % STEPS_PER_BEAT == 0
+        ]
+    at = _segment_index(h.timeline)
+    events: list[tuple[float, tuple[int, ...], Assignment | None]] = []
+    strums: list[bool] = []
+    for group in groups:
+        segment = at(group.start)
+        voicing = h.voicings[segment] if segment is not None else None
+        in_strum = group.start // ctx.bar_steps in strummed_bars
+        if voicing is not None and (in_strum or len(group.pitches) >= _STRUM_NOTES):
+            fixed = tuple((s, f) for s, f, _ in voicing.notes(instrument))
+            pitches = tuple(p for _, _, p in voicing.notes(instrument))
+            events.append((group.start / STEPS_PER_BEAT, pitches, fixed))
+            strums.append(True)
+        else:
+            pitches = _thin(group, _ORIGINAL_VOICES[level])
+            events.append((group.start / STEPS_PER_BEAT, pitches, None))
+            strums.append(False)
+
+    fingered = finger_events(events, instrument, span=SPAN[level], max_fret=MAX_FRET[level])
+    beats: list[TabBeat] = []
+    last_segment: int | None = None
+    for group, strum, option in zip(groups, strums, fingered, strict=True):
+        if option is None:
+            continue
+        notes = tuple(
+            TabNote(string, fret, instrument.pitch_at(string, fret)) for string, fret in option
+        )
+        stroke: Stroke | None = None
+        if strum:
+            # Рука ходит вверх-вниз по сетке уровня: вниз — на долю (или восьмую), вверх — между.
+            on_beat = group.start % (2 * GRID[level]) == 0
+            stroke = "down" if on_beat else "up"
+        segment = at(group.start)
+        label = h.names[segment] if segment is not None and segment != last_segment else None
+        if segment is not None:
+            last_segment = segment
+        beats.append(TabBeat(group.start, group.end - group.start, notes, stroke, label))
     return beats
 
 

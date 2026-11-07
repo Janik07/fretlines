@@ -27,6 +27,6 @@ export function SongPage({ id, route }: { id: string; route: Route }) {
       </>
     );
   }
-  if (song.status === "done") return <Studio key={song.id} song={song} route={route} />;
+  if (song.status === "done") return <Studio key={song.id} song={song} route={route} onRefresh={refresh} />;
   return <Processing song={song} route={route} onRetry={refresh} />;
 }

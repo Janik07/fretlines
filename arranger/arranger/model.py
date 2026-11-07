@@ -14,11 +14,11 @@ from arranger.theory import Chord, Key, Mode, parse_chord
 
 STEPS_PER_BEAT = 4
 
-Role = Literal["melody", "bass", "rhythm", "pad", "percussion"]
+Role = Literal["original", "melody", "bass", "rhythm", "pad", "percussion"]
 Difficulty = Literal["easy", "medium", "full"]
 Stroke = Literal["down", "up"]
 
-ROLES: tuple[Role, ...] = ("melody", "bass", "rhythm", "pad", "percussion")
+ROLES: tuple[Role, ...] = ("original", "melody", "bass", "rhythm", "pad", "percussion")
 DIFFICULTIES: tuple[Difficulty, ...] = ("easy", "medium", "full")
 
 
@@ -54,6 +54,13 @@ class Transcription:
     bass: tuple[Note, ...] = ()
     # Сила ударов барабанов на каждой шестнадцатой такта, 0..1 (длина beats_per_bar * 4).
     accents: tuple[float, ...] = ()
+    # Начала тактов в секундах записи и конец последнего (bars + 1 значение): по ним синтезатор
+    # повторяет живой темп, а курсор табов совпадает с оригиналом. Пусто — старые разборы.
+    bar_seconds: tuple[float, ...] = ()
+    # Ноты гитары из записи (полифония) — для партии «как в записи».
+    guitar: tuple[Note, ...] = ()
+    # Откуда взяты эти ноты: "guitar" — гитарная дорожка, "keys" — клавишные, если гитары нет.
+    guitar_source: str = ""
 
     @property
     def total_beats(self) -> int:
@@ -71,6 +78,9 @@ class Transcription:
             "melody": [_note_dict(n) for n in self.melody],
             "bass": [_note_dict(n) for n in self.bass],
             "accents": list(self.accents),
+            "bar_seconds": [round(t, 4) for t in self.bar_seconds],
+            "guitar": [_note_dict(n) for n in self.guitar],
+            "guitar_source": self.guitar_source,
         }
 
     @classmethod
@@ -88,6 +98,9 @@ class Transcription:
             melody=tuple(_note_from(n) for n in data.get("melody", [])),
             bass=tuple(_note_from(n) for n in data.get("bass", [])),
             accents=tuple(float(a) for a in data.get("accents", [])),
+            bar_seconds=tuple(float(t) for t in data.get("bar_seconds", [])),
+            guitar=tuple(_note_from(n) for n in data.get("guitar", [])),
+            guitar_source=str(data.get("guitar_source", "")),
         )
 
 

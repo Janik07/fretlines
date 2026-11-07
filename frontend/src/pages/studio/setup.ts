@@ -1,8 +1,9 @@
-import type { Meta, Player, Role, StudioSetup } from "../../lib/api";
+import type { Analysis, Meta, Player, Role, StemName, StudioSetup } from "../../lib/api";
 
-export const ROLE_ORDER: Role[] = ["melody", "rhythm", "bass", "pad", "percussion"];
+export const ROLE_ORDER: Role[] = ["original", "melody", "rhythm", "bass", "pad", "percussion"];
 
 export const ROLE_LABELS: Record<Role, string> = {
+  original: "Как в записи",
   melody: "Мелодия",
   rhythm: "Ритм",
   bass: "Бас",
@@ -11,6 +12,11 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 const FALLBACK_PRESETS: Record<string, { name: string; roles: Role[] }[]> = {
+  record: [
+    { name: "Гитара", roles: ["original"] },
+    { name: "Мелодия", roles: ["melody"] },
+    { name: "Бас", roles: ["bass"] },
+  ],
   solo: [{ name: "Гитара", roles: ["melody", "bass", "rhythm"] }],
   duo: [
     { name: "Лид", roles: ["melody", "pad"] },
@@ -51,8 +57,25 @@ export function applyPreset(meta: Meta | null, id: string, previous: Player[]): 
   });
 }
 
-export function defaultSetup(meta: Meta | null): StudioSetup {
-  return { players: applyPreset(meta, "trio", []), transpose: 0, mine: "p1" };
+/** Новый разбор: если в записи нашлась гитара — сразу партия «как в записи», иначе трио. */
+export function defaultSetup(meta: Meta | null, analysis?: Analysis | null): StudioSetup {
+  const record = (analysis?.counts.guitar ?? 0) >= 40;
+  return {
+    players: applyPreset(meta, record ? "record" : "trio", []),
+    transpose: 0,
+    mine: "p1",
+    sound: "record",
+  };
+}
+
+/** Какие дорожки записи берут на себя игроки группы — их глушим в режиме «Вместе». */
+export function coveredStems(players: Player[]): StemName[] {
+  const out = new Set<StemName>();
+  for (const player of players) {
+    if (player.roles.some((r) => r !== "melody" && r !== "bass")) out.add("guitar");
+    if (player.roles.includes("bass")) out.add("bass");
+  }
+  return [...out];
 }
 
 export function presetOf(players: Player[]): string | null {

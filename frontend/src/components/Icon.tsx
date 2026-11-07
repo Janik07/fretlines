@@ -48,6 +48,8 @@ const PATHS = {
   print: <path d="M6 7.5V3.5h8v4M6 13.5H4.5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H14M6 11h8v5.5H6V11Z" />,
   user: <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4.5 16.5a5.5 5.5 0 0 1 11 0" />,
   spark: <path d="M10 3v3M10 14v3M3 10h3M14 10h3M5.2 5.2l2 2M12.8 12.8l2 2M14.8 5.2l-2 2M7.2 12.8l-2 2" />,
+  mic: <path d="M10 12.5a2.5 2.5 0 0 0 2.5-2.5V5a2.5 2.5 0 0 0-5 0v5a2.5 2.5 0 0 0 2.5 2.5ZM5.5 9.5a4.5 4.5 0 0 0 9 0M10 14v3M7 17h6" />,
+  lines: <path d="M3.5 5.5h13M3.5 9h9M3.5 12.5h13M3.5 16h7" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

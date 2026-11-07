@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     device: Literal["auto", "cpu", "cuda"] = "auto"
     max_upload_mb: int = 50
     max_video_upload_mb: int = 200
+    # Текст песни: online — ищем готовый текст на lrclib.net (уходят только название и
+    # исполнитель) и сверяем с Whisper; local — только Whisper, без сети; off — без текста.
+    lyrics: Literal["online", "local", "off"] = "online"
+    # Модель Whisper: small (~460 МБ) — быстро на процессоре; medium, large-v3 — точнее.
+    lyrics_model: str = "small"
 
     @property
     def sqlalchemy_url(self) -> str:

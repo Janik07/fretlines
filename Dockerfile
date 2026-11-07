@@ -41,8 +41,8 @@ COPY worker/ worker/
 RUN uv sync --frozen --no-dev
 
 # Модели качаем при сборке, чтобы первый разбор не ждал загрузки.
-RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')" \
- && python -c "from beat_this.inference import load_checkpoint; load_checkpoint('final0')"
+COPY scripts/fetch_models.py scripts/
+RUN python scripts/fetch_models.py
 
 COPY --from=web /web/dist frontend/dist
 

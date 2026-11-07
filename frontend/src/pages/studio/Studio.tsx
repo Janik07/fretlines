@@ -5,21 +5,50 @@ import { Header } from "../../components/Header";
 import { Icon } from "../../components/Icon";
 import { Segmented } from "../../components/Segmented";
 import { useMeta } from "../../hooks/useApi";
-import { api, type Arrangement, type Song, type StudioSetup } from "../../lib/api";
+import {
+  api,
+  type Analysis,
+  type Arrangement,
+  type Lyrics,
+  type Song,
+  type SoundSource,
+  type StemName,
+  type StudioSetup,
+} from "../../lib/api";
 import { keyWords, prettyChord } from "../../lib/format";
 import { EASE_FILM } from "../../lib/motion";
 import { navigate, type Route } from "../../lib/router";
 import { useThemeStore } from "../../store/theme";
 import { BandPanel } from "./BandPanel";
 import { ChordsView } from "./ChordsView";
+import { KaraokeStrip, LyricsSheet } from "./Lyrics";
 import { PlayerBar, type TrackMix } from "./PlayerBar";
-import { defaultSetup } from "./setup";
+import { coveredStems, defaultSetup } from "./setup";
+import { secondsToTick, tickToSeconds, usable, type Timeline } from "./timeline";
 import { download, useAlphaTab } from "./useAlphaTab";
+import { useRecording } from "./useRecording";
 
-type Mode = "mine" | "score" | "chords";
+type Mode = "mine" | "score" | "chords" | "text";
 
 function fileName(title: string): string {
   return title.replace(/[\\/:*?"<>|]+/g, " ").trim().slice(0, 80) || "fretlines";
+}
+
+/** Узкий экран (телефон): подписи короче, переключатели — на всю ширину. */
+function useNarrow(): boolean {
+  const query = "(max-width: 639px)";
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const onChange = () => {
+      setNarrow(list.matches);
+    };
+    list.addEventListener("change", onChange);
+    return () => {
+      list.removeEventListener("change", onChange);
+    };
+  }, []);
+  return narrow;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -27,22 +56,55 @@ function typing(target: EventTarget | null): boolean {
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
-export function Studio({ song, route }: { song: Song; route: Route }) {
+export function Studio({ song, route, onRefresh }: { song: Song; route: Route; onRefresh: () => void }) {
   const meta = useMeta();
   const theme = useThemeStore((s) => s.theme);
-  const [setup, setSetup] = useState<StudioSetup>(() => song.setup ?? defaultSetup(null));
+  const narrow = useNarrow();
+  const [setup, setSetup] = useState<StudioSetup | null>(song.setup);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [lyrics, setLyrics] = useState<Lyrics | null>(null);
   const [arrangement, setArrangement] = useState<Arrangement | null>(null);
   const [arranging, setArranging] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("mine");
   const [mix, setMix] = useState<TrackMix[]>([]);
   const [bandOpen, setBandOpen] = useState(false);
+  const [karaoke, setKaraoke] = useState(true);
+  const [recordVolume, setRecordVolume] = useState(0.9);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const firstSave = useRef(true);
 
+  useEffect(() => {
+    let alive = true;
+    api
+      .analysis(song.id)
+      .then((data) => {
+        if (!alive) return;
+        setAnalysis(data);
+        // Новый разбор: состав по умолчанию зависит от того, нашлась ли гитара в записи.
+        setSetup((current) => current ?? defaultSetup(meta, data));
+      })
+      .catch(() => {
+        if (alive) setSetup((current) => current ?? defaultSetup(meta));
+      });
+    api
+      .lyrics(song.id)
+      .then((data) => {
+        if (alive) setLyrics(data.lines.length ? data : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+    // meta нужна только для подписей пресета — ждать её незачем
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song.id]);
+
   // Пересчёт партий по составу — без повторного анализа (SPEC §1.5).
   useEffect(() => {
+    if (!setup) return;
     let alive = true;
     const timer = window.setTimeout(() => {
       setArranging(true);
@@ -65,10 +127,13 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [song.id, setup]);
+    // Звук и заглушённые дорожки на партии не влияют — пересчёт только по составу.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song.id, setup?.players, setup?.transpose, setup?.lyricsInTabs]);
 
   // Состав и правки сохраняются в разборе — откроешь завтра, всё на месте.
   useEffect(() => {
+    if (!setup) return;
     if (firstSave.current) {
       firstSave.current = false;
       return;
@@ -81,19 +146,39 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
     };
   }, [song.id, setup]);
 
-  const mineIndex = Math.max(0, setup.players.findIndex((p) => p.id === setup.mine));
+  const players = useMemo(() => setup?.players ?? [], [setup?.players]);
+  const mineIndex = Math.max(0, players.findIndex((p) => p.id === setup?.mine));
   const visible = useMemo(() => (mode === "mine" ? [mineIndex] : null), [mode, mineIndex]);
   const controls = useAlphaTab(host, scroller, arrangement?.alphatex ?? null, visible, theme);
   const { view } = controls;
 
+  const timeline = useMemo<Timeline | null>(
+    () =>
+      arrangement
+        ? { barTicks: controls.bars.starts, barDurations: controls.bars.durations, barSeconds: arrangement.bar_seconds }
+        : null,
+    [arrangement, controls.bars],
+  );
+  const synced = usable(timeline) && controls.bars.starts.length === arrangement?.bars;
+  const sound: SoundSource = synced ? (setup?.sound ?? "record") : "parts";
+  const muted = useMemo(() => setup?.muted ?? [], [setup?.muted]);
+  const without = useMemo<StemName[]>(() => {
+    if (sound === "record") return muted;
+    return [...new Set<StemName>([...coveredStems(players), ...muted])];
+  }, [sound, muted, players]);
+  const recordSrc = sound === "parts" ? null : api.mixUrl(song.id, without);
+  const recording = useRecording(controls, recordSrc, synced ? timeline : null, recordVolume);
+  const seconds = synced ? tickToSeconds(timeline, view.tick) : view.time / 1000;
+
   useEffect(() => {
     if (!view.ready || view.rendering) return;
     mix.forEach((state, index) => {
-      controls.setTrackState(index, state);
+      // В режиме «Запись» синтезатор только ведёт время — партии не звучат.
+      controls.setTrackState(index, { ...state, mute: state.mute || sound === "record" });
     });
     // controls пересоздаётся каждый рендер; важны только состояние микшера и готовность плеера.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mix, view.ready, view.rendering, arrangement]);
+  }, [mix, view.ready, view.rendering, arrangement, sound]);
 
   const toggleMineMute = useCallback(() => {
     setMix((current) =>
@@ -101,12 +186,25 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
     );
   }, [mineIndex]);
 
+  const { unlock } = recording;
+  const playPause = useCallback(() => {
+    unlock();
+    controls.playPause();
+  }, [unlock, controls]);
+
+  const seekSeconds = useCallback(
+    (value: number) => {
+      if (synced) controls.seekTick(secondsToTick(timeline, value));
+    },
+    [synced, timeline, controls],
+  );
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (typing(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.code === "Space") {
         event.preventDefault();
-        controls.playPause();
+        playPause();
       } else if (event.key === "ArrowLeft") {
         event.preventDefault();
         controls.seekBar(-1);
@@ -123,7 +221,7 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [controls, toggleMineMute]);
+  }, [controls, toggleMineMute, playPause]);
 
   function onExport(kind: "pdf" | "gp" | "midi" | "tex") {
     const name = fileName(song.title);
@@ -133,8 +231,27 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
     if (kind === "tex" && arrangement) download(new Blob([arrangement.alphatex], { type: "text/plain" }), `${name}.atex`);
   }
 
+  function reanalyze() {
+    setReanalyzing(true);
+    api
+      .retry(song.id)
+      .then(onRefresh)
+      .catch(() => {
+        setReanalyzing(false);
+      });
+  }
+
   const minePart = arrangement?.parts[mineIndex] ?? null;
   const key = arrangement?.key ?? song.key ?? "";
+  const update = (next: Partial<StudioSetup>) => {
+    setSetup((current) => (current ? { ...current, ...next } : current));
+  };
+  const modes: { value: Mode; label: string }[] = [
+    { value: "mine", label: narrow ? "Моя" : "Моя партия" },
+    { value: "score", label: "Партитура" },
+    { value: "chords", label: "Аккорды" },
+  ];
+  if (lyrics) modes.push({ value: "text", label: "Текст" });
 
   return (
     <div className="flex h-dvh flex-col">
@@ -149,7 +266,7 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
               <Icon name="close" size={18} />
             </button>
           )}
-          <BandPanel setup={setup} meta={meta} arrangement={arrangement} onChange={setSetup} />
+          {setup && <BandPanel setup={setup} meta={meta} arrangement={arrangement} onChange={setSetup} />}
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
@@ -171,16 +288,16 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
             <div className="flex items-center gap-2" title={key ? keyWords(key) : undefined}>
               <span className="eyebrow">Тональность</span>
               <div className="flex h-10 items-center rounded-full border border-line-strong">
-                <button type="button" className="icon-btn size-9" aria-label="Транспонировать на полтона вниз" disabled={setup.transpose <= -12} onClick={() => { setSetup({ ...setup, transpose: setup.transpose - 1 }); }}>
+                <button type="button" className="icon-btn size-9" aria-label="Транспонировать на полтона вниз" disabled={!setup || setup.transpose <= -12} onClick={() => { if (setup) update({ transpose: setup.transpose - 1 }); }}>
                   <Icon name="minus" size={14} />
                 </button>
                 <span className="min-w-[64px] text-center font-display text-[22px] leading-none font-[740] tabular" aria-live="polite">
                   {prettyChord(key)}
-                  {setup.transpose !== 0 && (
+                  {setup && setup.transpose !== 0 && (
                     <span className="ml-1 font-mono text-caption text-text-dim">{setup.transpose > 0 ? `+${String(setup.transpose)}` : setup.transpose}</span>
                   )}
                 </span>
-                <button type="button" className="icon-btn size-9" aria-label="Транспонировать на полтона вверх" disabled={setup.transpose >= 12} onClick={() => { setSetup({ ...setup, transpose: setup.transpose + 1 }); }}>
+                <button type="button" className="icon-btn size-9" aria-label="Транспонировать на полтона вверх" disabled={!setup || setup.transpose >= 12} onClick={() => { if (setup) update({ transpose: setup.transpose + 1 }); }}>
                   <Icon name="plus" size={14} />
                 </button>
               </div>
@@ -192,19 +309,24 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
               <button type="button" onClick={() => { setBandOpen(true); }} className="btn btn-ghost h-10 shrink-0 px-3 text-small lg:hidden" aria-label="Состав группы">
                 <Icon name="user" size={16} /> <span className="hidden sm:inline">Состав</span>
               </button>
-              <Segmented
-                size="sm"
-                label="Что показать"
-                value={mode}
-                onChange={setMode}
-                options={[
-                  { value: "mine", label: "Моя партия" },
-                  { value: "score", label: "Партитура" },
-                  { value: "chords", label: "Аккорды" },
-                ]}
-              />
+              <div className="min-w-0 flex-1 sm:flex-none">
+                <Segmented size="sm" label="Что показать" value={mode} onChange={setMode} options={modes} fill={narrow} />
+              </div>
             </div>
           </div>
+
+          {analysis?.outdated && (
+            <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-5 py-3 text-small sm:px-7">
+              <Icon name="spark" size={16} />
+              <span className="min-w-[200px] flex-1 text-text-dim">
+                Этот разбор сделан старой версией. Обнови его — появятся звук записи в такт табам, партия
+                «как в записи», текст песни и точнее аккорды.
+              </span>
+              <button type="button" className="btn btn-primary h-9 px-4 text-small" disabled={reanalyzing} onClick={reanalyze}>
+                <Icon name="retry" size={15} /> {reanalyzing ? "Запускаю…" : "Обновить разбор"}
+              </button>
+            </div>
+          )}
 
           <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
             <AnimatePresence>
@@ -241,26 +363,61 @@ export function Studio({ song, route }: { song: Song; route: Route }) {
                 <ChordsView arrangement={arrangement} part={minePart} />
               </motion.div>
             )}
+            {mode === "text" && arrangement && lyrics && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: EASE_FILM }}
+              >
+                <LyricsSheet lyrics={lyrics} arrangement={arrangement} seconds={seconds} onSeek={seekSeconds} />
+              </motion.div>
+            )}
             {/* Табы остаются в разметке (alphaTab не пересчитывает раскладку), просто скрыты. */}
             <div
               ref={host}
-              aria-hidden={mode === "chords"}
-              className={`at-surface px-2 pt-2 pb-24 ${mode === "chords" ? "invisible max-h-0 overflow-hidden" : ""}`}
+              aria-hidden={mode === "chords" || mode === "text"}
+              className={`at-surface px-2 pt-2 pb-24 ${mode === "chords" || mode === "text" ? "invisible max-h-0 overflow-hidden" : ""}`}
             />
             {view.error && (
               <p className="m-6 text-small text-danger">Не получилось показать табы: {view.error}</p>
             )}
           </div>
+          {lyrics && karaoke && mode !== "text" && synced && (
+            <KaraokeStrip lyrics={lyrics} seconds={seconds} onSeek={seekSeconds} />
+          )}
         </main>
       </div>
       <PlayerBar
         controls={controls}
+        onPlayPause={playPause}
         parts={arrangement?.parts ?? []}
         mix={mix}
         onMix={(index, next) => {
           setMix((current) => current.map((state, i) => (i === index ? next : state)));
         }}
         onExport={onExport}
+        sound={sound}
+        soundAvailable={synced}
+        onSound={(value) => {
+          update({ sound: value });
+        }}
+        stems={analysis?.stems.filter((s): s is StemName => s !== "mix") ?? []}
+        muted={muted}
+        covered={sound === "together" ? coveredStems(players) : []}
+        onMuted={(value) => {
+          update({ muted: value });
+        }}
+        recordVolume={recordVolume}
+        onRecordVolume={setRecordVolume}
+        recordLoading={sound !== "parts" && recording.loading}
+        recordError={sound !== "parts" ? recording.error : null}
+        lyricsAvailable={lyrics !== null}
+        karaoke={karaoke}
+        onKaraoke={setKaraoke}
+        lyricsInTabs={setup?.lyricsInTabs ?? true}
+        onLyricsInTabs={(value) => {
+          update({ lyricsInTabs: value });
+        }}
       />
     </div>
   );

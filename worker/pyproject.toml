@@ -1,15 +1,17 @@
 [project]
 name = "fretlines-worker"
-version = "0.2.0"
-description = "Анализ песен Fretlines: загрузка, стемы, доли, аккорды, мелодия, бас"
+version = "0.3.0"
+description = "Анализ песен Fretlines: загрузка, стемы, доли, аккорды, мелодия, бас, гитара, текст"
 requires-python = "==3.11.*"
 dependencies = [
     "fretlines-arranger",
     "beat-this>=1.1",
     "demucs>=4.1",
+    "faster-whisper>=1.2",  # текст песни по вокальной дорожке
     "imageio-ffmpeg>=0.8",
     "librosa>=0.11",
     "numpy>=1.26",
+    "onnxruntime>=1.20",  # Basic Pitch: ноты гитары и гармония
     "scipy>=1.13",
     "soundfile>=0.13",
     "torch>=2.11,<2.12",  # torchaudio выпускается в паре с torch той же версии

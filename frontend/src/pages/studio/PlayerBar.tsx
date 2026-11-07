@@ -2,7 +2,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "../../components/Icon";
-import type { PartInfo } from "../../lib/api";
+import { Segmented } from "../../components/Segmented";
+import { STEMS, type PartInfo, type SoundSource, type StemName } from "../../lib/api";
 import { clock } from "../../lib/format";
 import { EASE_FILM } from "../../lib/motion";
 import { RoleMark } from "./BandPanel";
@@ -13,6 +14,27 @@ export interface TrackMix {
   solo: boolean;
   volume: number;
 }
+
+const STEM_LABELS: Record<StemName, string> = {
+  vocals: "Вокал",
+  guitar: "Гитара",
+  bass: "Бас",
+  drums: "Барабаны",
+  piano: "Клавиши",
+  other: "Остальное",
+};
+
+const SOUND_OPTIONS: { value: SoundSource; label: string }[] = [
+  { value: "record", label: "Запись" },
+  { value: "together", label: "Вместе" },
+  { value: "parts", label: "Партии" },
+];
+
+const SOUND_HINTS: Record<SoundSource, string> = {
+  record: "Оригинал песни, табы идут в такт",
+  together: "Запись без того, что играет группа, + ваши партии",
+  parts: "Только партии группы гитарным звуком",
+};
 
 function Popover({ open, onClose, children, label }: { open: boolean; onClose: () => void; children: React.ReactNode; label: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -54,21 +76,56 @@ function Popover({ open, onClose, children, label }: { open: boolean; onClose: (
 
 export function PlayerBar({
   controls,
+  onPlayPause,
   parts,
   mix,
   onMix,
   onExport,
+  sound,
+  soundAvailable,
+  onSound,
+  stems,
+  muted,
+  covered,
+  onMuted,
+  recordVolume,
+  onRecordVolume,
+  recordLoading,
+  recordError,
+  lyricsAvailable,
+  karaoke,
+  onKaraoke,
+  lyricsInTabs,
+  onLyricsInTabs,
 }: {
   controls: AlphaTabControls;
+  onPlayPause: () => void;
   parts: PartInfo[];
   mix: TrackMix[];
   onMix: (index: number, next: TrackMix) => void;
   onExport: (kind: "pdf" | "gp" | "midi" | "tex") => void;
+  sound: SoundSource;
+  soundAvailable: boolean;
+  onSound: (sound: SoundSource) => void;
+  stems: StemName[];
+  muted: StemName[];
+  covered: StemName[];
+  onMuted: (muted: StemName[]) => void;
+  recordVolume: number;
+  onRecordVolume: (volume: number) => void;
+  recordLoading: boolean;
+  recordError: string | null;
+  lyricsAvailable: boolean;
+  karaoke: boolean;
+  onKaraoke: (on: boolean) => void;
+  lyricsInTabs: boolean;
+  onLyricsInTabs: (on: boolean) => void;
 }) {
   const { view } = controls;
   const [panel, setPanel] = useState<"mixer" | "export" | null>(null);
   const progress = view.endTime ? view.time / view.endTime : 0;
   const speedPct = Math.round(view.speed * 100);
+  const available = STEMS.filter((s) => stems.includes(s));
 
   return (
     <div className="border-t border-line bg-bg/92 backdrop-blur-xl">
@@ -79,7 +136,7 @@ export function PlayerBar({
           </button>
           <button
             type="button"
-            onClick={controls.playPause}
+            onClick={onPlayPause}
             disabled={!view.ready}
             aria-label={view.playing ? "Пауза (пробел)" : "Играть (пробел)"}
             title={view.playing ? "Пауза (пробел)" : "Играть (пробел)"}
@@ -119,7 +176,20 @@ export function PlayerBar({
           </span>
         </div>
 
+        {soundAvailable && (
+          <div className="flex items-center gap-2" title={SOUND_HINTS[sound]}>
+            <Segmented size="sm" label="Что звучит" value={sound} onChange={onSound} options={SOUND_OPTIONS} />
+            {recordLoading && <span className="pulse-soft text-caption text-text-dim">загружаю запись…</span>}
+            {recordError && <span className="text-caption text-danger">{recordError}</span>}
+          </div>
+        )}
+
         <div className="flex items-center gap-1">
+          {lyricsAvailable && (
+            <button type="button" className="icon-btn" aria-pressed={karaoke} onClick={() => { onKaraoke(!karaoke); }} title="Караоке-строка" aria-label="Караоке-строка">
+              <Icon name="mic" size={18} />
+            </button>
+          )}
           <button type="button" className="icon-btn" aria-pressed={view.looping} onClick={controls.toggleLoop} title="Петля A–B (L)" aria-label="Петля A–B (L)">
             <Icon name="loop" size={18} />
           </button>
@@ -143,7 +213,52 @@ export function PlayerBar({
               <Icon name="sliders" size={18} />
             </button>
             <Popover open={panel === "mixer"} onClose={() => { setPanel(null); }} label="Микшер">
-              <p className="eyebrow mb-3">Микшер</p>
+              {soundAvailable && available.length > 0 ? (
+                <section className="mb-5" aria-label="Дорожки записи">
+                  <div className="mb-3 flex items-baseline justify-between gap-3">
+                    <p className="eyebrow">Запись</p>
+                    <span className="text-caption text-text-dim">{sound === "parts" ? "сейчас не звучит" : SOUND_HINTS[sound]}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {available.map((stem) => {
+                      const byBand = covered.includes(stem);
+                      const on = !muted.includes(stem) && !byBand;
+                      return (
+                        <button
+                          key={stem}
+                          type="button"
+                          className="chip h-8"
+                          aria-pressed={on}
+                          disabled={byBand}
+                          title={byBand ? "Эту дорожку играет группа — она заглушена в режиме «Вместе»" : on ? "Заглушить" : "Включить"}
+                          onClick={() => {
+                            onMuted(on ? [...muted, stem] : muted.filter((s) => s !== stem));
+                          }}
+                        >
+                          {STEM_LABELS[stem]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={recordVolume}
+                    aria-label="Громкость записи"
+                    onChange={(e) => { onRecordVolume(Number(e.target.value)); }}
+                    className="mt-3 w-full accent-[var(--accent)]"
+                  />
+                </section>
+              ) : (
+                !soundAvailable && (
+                  <p className="mb-4 text-caption text-text-dim">
+                    Звук записи появится, когда обновишь разбор.
+                  </p>
+                )
+              )}
+              <p className="eyebrow mb-3">Партии</p>
               <ul className="space-y-3">
                 {parts.map((part, index) => {
                   const state = mix[index] ?? { mute: false, solo: false, volume: 1 };
@@ -175,6 +290,19 @@ export function PlayerBar({
                   );
                 })}
               </ul>
+              {lyricsAvailable && (
+                <section className="mt-5 space-y-2" aria-label="Текст песни">
+                  <p className="eyebrow">Текст</p>
+                  <label className="flex items-center justify-between gap-3 text-small">
+                    Караоке-строка под табами
+                    <input type="checkbox" checked={karaoke} onChange={(e) => { onKaraoke(e.target.checked); }} className="accent-[var(--accent)]" />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-small">
+                    Слова под нотами в табах
+                    <input type="checkbox" checked={lyricsInTabs} onChange={(e) => { onLyricsInTabs(e.target.checked); }} className="accent-[var(--accent)]" />
+                  </label>
+                </section>
+              )}
             </Popover>
           </div>
           <div className="relative">

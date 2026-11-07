@@ -15,8 +15,10 @@ const STAGES = [
   { key: "stems", label: "Разделяем на инструменты" },
   { key: "rhythm", label: "Слушаем ритм" },
   { key: "harmony", label: "Ищем аккорды и тональность" },
+  { key: "guitar", label: "Снимаем ноты гитары из записи" },
   { key: "melody", label: "Записываем мелодию" },
   { key: "bass", label: "Записываем бас" },
+  { key: "lyrics", label: "Слушаем слова песни" },
   { key: "arrange", label: "Собираем партии" },
   { key: "save", label: "Сохраняем разбор" },
 ] as const;

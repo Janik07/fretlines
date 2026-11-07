@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from fretlines_api.db import Song
 
 Status = Literal["queued", "running", "done", "failed"]
-RoleName = Literal["melody", "bass", "rhythm", "pad", "percussion"]
+RoleName = Literal["original", "melody", "bass", "rhythm", "pad", "percussion"]
 Level = Literal["easy", "medium", "full"]
 Kind = Literal["acoustic", "electric", "bass"]
 
@@ -86,3 +86,22 @@ class PlayerIn(BaseModel):
 class ArrangementIn(BaseModel):
     players: list[PlayerIn] = Field(min_length=1, max_length=4)
     transpose: int = Field(default=0, ge=-12, le=12)
+    lyrics_in_tabs: bool = True  # подписывать слова песни под долями партий
+
+
+class WordIn(BaseModel):
+    text: str = Field(min_length=1, max_length=80)
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+
+
+class LineIn(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    words: list[WordIn] = Field(max_length=60)
+
+
+class LyricsIn(BaseModel):
+    source: str | None = None
+    language: str | None = Field(default=None, max_length=12)
+    lines: list[LineIn] = Field(max_length=600)

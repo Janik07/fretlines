@@ -15,17 +15,25 @@ export function Segmented<T extends string>({
   onChange,
   label,
   size = "md",
+  fill = false,
 }: {
   options: Option<T>[];
   value: T;
   onChange: (value: T) => void;
   label: string;
   size?: "sm" | "md";
+  /** На всю ширину: пункты делят место поровну (когда их много, а места мало). */
+  fill?: boolean;
 }) {
   const id = useId();
   const height = size === "sm" ? "h-8 text-[13px]" : "h-10 text-small";
+  const spacing = fill ? "flex-auto px-2" : "px-3.5 sm:px-4";
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-full border border-line bg-surface p-1">
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={`${fill ? "flex w-full" : "inline-flex"} rounded-full border border-line bg-surface p-1`}
+    >
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -37,7 +45,7 @@ export function Segmented<T extends string>({
             onClick={() => {
               onChange(option.value);
             }}
-            className={`relative ${height} rounded-full px-3.5 font-semibold whitespace-nowrap transition-colors duration-300 ease-film sm:px-4 ${
+            className={`relative ${height} ${spacing} rounded-full font-semibold whitespace-nowrap transition-colors duration-300 ease-film ${
               active ? "text-on-accent" : "text-text-dim hover:text-text"
             }`}
           >

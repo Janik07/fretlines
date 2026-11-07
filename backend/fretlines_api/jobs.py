@@ -23,11 +23,19 @@ log = logging.getLogger("fretlines.jobs")
 
 
 class JobRunner:
-    def __init__(self, engine: Engine, storage_dir: Path, database_url: str, device: str) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        storage_dir: Path,
+        database_url: str,
+        device: str,
+        lyrics: tuple[str, str] = ("off", "small"),
+    ) -> None:
         self._engine = engine
         self._storage_dir = storage_dir
         self._database_url = database_url
         self._device = device
+        self._lyrics = lyrics  # (режим, модель Whisper) — см. Settings.lyrics
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.Lock()
         self._current: tuple[str, BaseProcess] | None = None
@@ -83,7 +91,13 @@ class JobRunner:
                     continue
             process = self._context.Process(
                 target=run_job,
-                args=(song_id, str(self._storage_dir), self._database_url, self._device),
+                args=(
+                    song_id,
+                    str(self._storage_dir),
+                    self._database_url,
+                    self._device,
+                    self._lyrics,
+                ),
                 name=f"fretlines-analysis-{song_id[:8]}",
                 daemon=True,
             )
@@ -148,21 +162,30 @@ class _Reporter:
             session.commit()
 
 
-def run_job(song_id: str, storage_dir: str, database_url: str, device: str) -> None:
+def run_job(
+    song_id: str,
+    storage_dir: str,
+    database_url: str,
+    device: str,
+    lyrics: tuple[str, str] = ("off", "small"),
+) -> None:
     """Выполняется в отдельном процессе (spawn): разбор одной песни от и до."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     from fretlines_worker.errors import AnalysisError
-    from fretlines_worker.pipeline import run_analysis, stage_weights
+    from fretlines_worker.pipeline import LyricsOptions, run_analysis, stage_weights
 
     engine = create_db_engine(database_url)
     folder = Path(storage_dir) / "songs" / song_id
+    mode, model = lyrics
+    options = LyricsOptions(mode=mode if mode in ("online", "local") else "off", model=model)  # type: ignore[arg-type]
     with session_scope(engine) as session:
         song = session.get(Song, song_id)
         if song is None:
             return
         url = song.source_url if song.source_kind == "url" else None
+        title, artist = song.title, song.artist
         song.status, song.stage, song.progress = "running", None, 0.0
         song.error_code = song.error_message = None
         session.commit()
@@ -178,9 +201,18 @@ def run_job(song_id: str, storage_dir: str, database_url: str, device: str) -> N
                     setattr(song, field, value)
             session.commit()
 
-    report = _Reporter(engine, song_id, stage_weights(url is not None))
+    report = _Reporter(engine, song_id, stage_weights(url is not None, options.mode != "off"))
     try:
-        run_analysis(folder, source_url=url, device=device, report=report, on_meta=on_meta)
+        run_analysis(
+            folder,
+            source_url=url,
+            device=device,
+            report=report,
+            on_meta=on_meta,
+            title=title,
+            artist=artist,
+            lyrics=options,
+        )
     except AnalysisError as error:
         _finish(engine, song_id, "failed", error.code, error.message)
         return

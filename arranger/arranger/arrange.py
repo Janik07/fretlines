@@ -25,6 +25,7 @@ from arranger.parts import (
     harmony,
     melody_part,
     melody_with_pad,
+    original_part,
     pad_part,
     percussion_part,
     playability_issues,
@@ -34,9 +35,10 @@ from arranger.theory import Key
 from arranger.voicings import SPAN, CapoOption, suggest_capo
 
 # Если ролей у игрока больше, чем он может сыграть разом, остаётся главная по этому порядку.
-PRIORITY: tuple[Role, ...] = ("melody", "rhythm", "bass", "pad", "percussion")
+PRIORITY: tuple[Role, ...] = ("original", "melody", "rhythm", "bass", "pad", "percussion")
 
 ROLE_LABELS: dict[Role, str] = {
+    "original": "Как в записи",
     "melody": "Мелодия",
     "bass": "Бас",
     "rhythm": "Ритм",
@@ -57,6 +59,7 @@ class PlayerSetup:
 
 
 PRESETS: dict[str, tuple[tuple[str, tuple[Role, ...]], ...]] = {
+    "record": (("Гитара", ("original",)), ("Мелодия", ("melody",)), ("Бас", ("bass",))),
     "solo": (("Гитара", ("melody", "bass", "rhythm")),),
     "duo": (("Лид", ("melody", "pad")), ("Ритм", ("rhythm", "bass"))),
     "trio": (("Мелодия", ("melody",)), ("Ритм", ("rhythm",)), ("Бас", ("bass",))),
@@ -69,6 +72,7 @@ PRESETS: dict[str, tuple[tuple[str, tuple[Role, ...]], ...]] = {
 }
 
 PRESET_LABELS: dict[str, str] = {
+    "record": "Как в записи: гитара, мелодия, бас",
     "solo": "Соло фингерстайл",
     "duo": "Дуэт: лид + ритм",
     "trio": "Трио: мелодия + ритм + бас",
@@ -99,6 +103,7 @@ class Arrangement:
     parts: tuple[Part, ...]
     chart: tuple[tuple[ChartChord, ...], ...]  # аккорды по тактам — для режима «Аккорды»
     capo_hints: dict[str, tuple[CapoOption, ...]] = field(default_factory=dict)
+    bar_seconds: tuple[float, ...] = ()  # начала тактов в записи (+ конец последнего)
 
 
 def _title(player: PlayerSetup, roles: Sequence[Role]) -> str:
@@ -118,8 +123,25 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
     roles = set(wanted)
     beats: list[TabBeat]
     played: list[Role]
-    h = harmony(ctx, instrument, level) if roles & {"rhythm", "pad"} or len(roles) > 1 else None
-    if "melody" in roles and roles & {"bass", "rhythm"} and h is not None:
+    h = (
+        harmony(ctx, instrument, level)
+        if roles & {"rhythm", "pad", "original"} or len(roles) > 1
+        else None
+    )
+    if "original" in roles and h is not None and not ctx.tx.guitar:
+        # Нот из записи нет (старый разбор или в песне нет гитары) — играем ритм по аккордам.
+        beats, played = rhythm_part(ctx, instrument, level, h), ["rhythm"]
+        roles.add("rhythm")
+        warnings.append(
+            "Нот гитары из записи нет — вместо партии «как в записи» ритм по аккордам. "
+            "Если разбор старый, нажми «Обновить разбор»."
+        )
+    elif "original" in roles and h is not None:
+        # Партия из записи самодостаточна: остальные роли этого игрока она и так покрывает.
+        beats, played = original_part(ctx, instrument, level, h), ["original"]
+        if ctx.tx.guitar_source == "keys":
+            warnings.append("Гитары в записи почти не слышно — партия собрана по клавишным.")
+    elif "melody" in roles and roles & {"bass", "rhythm"} and h is not None:
         beats, played = fingerstyle_part(ctx, instrument, level, h), ["melody", "bass", "rhythm"]
         played = [r for r in played if r in roles]
     elif {"rhythm", "bass"} <= roles and h is not None:
@@ -138,22 +160,28 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
         else:
             h = h or harmony(ctx, instrument, level)
             beats = (rhythm_part if main == "rhythm" else pad_part)(ctx, instrument, level, h)
-    skipped = [ROLE_LABELS[r].lower() for r in wanted if r not in played]
-    if skipped:
+    # «Как в записи» либо сыграна, либо заменена ритмом (о чём уже предупредили).
+    skipped = [ROLE_LABELS[r].lower() for r in wanted if r not in played and r != "original"]
+    if skipped and "original" not in played:
         warnings.append(
             "Одному игроку столько не сыграть — без партии: " + ", ".join(skipped) + "."
         )
     if not beats:
-        if "melody" in played:
+        if "original" in played:
+            pass  # причина уже в предупреждениях выше
+        elif "melody" in played:
             warnings.append("Мелодию разобрать не удалось — попробуй файл с более чистым вокалом.")
         else:
             warnings.append("Для этой партии не нашлось нот.")
 
     issues = playability_issues(beats, instrument, SPAN[level])
     warnings.extend(f"Неудобное место: {issue}" for issue in issues[:3])
-    shapes: tuple[ChordShape, ...] = (
-        h.shapes() if h is not None and roles & {"rhythm", "pad"} else ()
-    )
+    shown = {beat.chord for beat in beats if beat.chord and len(beat.notes) >= 3}
+    shapes: tuple[ChordShape, ...] = ()
+    if h is not None and "original" in played:
+        shapes = tuple(s for s in h.shapes() if s.name in shown)
+    elif h is not None and roles & {"rhythm", "pad"}:
+        shapes = h.shapes()
     return Part(
         player_id=player.id,
         title=_title(player, played),
@@ -197,6 +225,7 @@ def arrange(tx: Transcription, players: Sequence[PlayerSetup], transpose: int = 
         parts=parts,
         chart=chord_chart(ctx),
         capo_hints=hints,
+        bar_seconds=tx.bar_seconds,
     )
 
 
@@ -225,6 +254,7 @@ def arrangement_to_dict(arr: Arrangement) -> dict[str, Any]:
             for p in arr.parts
         ],
         "chart": [[{"offset": c.offset, "name": c.name} for c in bar] for bar in arr.chart],
+        "bar_seconds": [round(t, 4) for t in arr.bar_seconds],
         "capo_hints": {
             pid: [{"capo": o.capo, "score": o.score, "barre_chords": o.barre_chords} for o in opts]
             for pid, opts in arr.capo_hints.items()

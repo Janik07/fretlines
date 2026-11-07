@@ -33,8 +33,14 @@ def track_beats(mono: NDArray[np.float32], device: str) -> tuple[list[float], li
     return [float(t) for t in times], []
 
 
-def drum_accents(drums: NDArray[np.float32], grid: BeatGrid) -> tuple[float, ...]:
-    """Средняя сила ударов на каждой шестнадцатой такта, 0…1 — основа для схемы боя."""
+def drum_accents(
+    drums: NDArray[np.float32], grid: BeatGrid, active_only: bool = False
+) -> tuple[float, ...]:
+    """Средняя сила ударов на каждой шестнадцатой такта, 0…1 — основа для схемы боя.
+
+    active_only — считать только такты, где дорожка звучит (гитара молчит в куплетах — эти
+    такты не должны «обнулять» схему боя).
+    """
     import librosa
 
     sr = 22_050
@@ -51,6 +57,12 @@ def drum_accents(drums: NDArray[np.float32], grid: BeatGrid) -> tuple[float, ...
     padded = np.pad(envelope, 2, mode="edge")
     window = np.stack([padded[index + k] for k in range(5)]).max(axis=0)
     per_slot = window.reshape(grid.bars, slots)
+    if active_only:
+        loudness = per_slot.sum(axis=1)
+        active = loudness >= 0.3 * float(np.percentile(loudness, 90))
+        if active.sum() < 4:
+            return ()
+        per_slot = per_slot[active]
     # Берём медиану по тактам: так случайные сбивки не перекраивают схему.
     profile = np.median(per_slot, axis=0)
     top = float(profile.max())

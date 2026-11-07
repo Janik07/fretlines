@@ -1,25 +1,29 @@
-"""Разборы песен: загрузка файла или ссылки, прогресс, результат, аранжировка, звук."""
+"""Разборы песен: загрузка файла или ссылки, прогресс, результат, аранжировка, звук, текст."""
 
 from __future__ import annotations
 
+import bisect
 import json
 import re
 import shutil
+import subprocess
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import Engine, select
 
 from arranger import PlayerSetup, Transcription, arrange, arrangement_to_dict, to_alphatex
+from arranger.model import STEPS_PER_BEAT
 from fretlines_api.db import Song, session_scope
 from fretlines_api.deps import get_engine, get_runner, get_settings
 from fretlines_api.jobs import JobRunner
-from fretlines_api.schemas import ArrangementIn, ImportIn, SongOut, SongPatch
+from fretlines_api.schemas import ArrangementIn, ImportIn, LyricsIn, SongOut, SongPatch
 from fretlines_api.settings import Settings
 
 router = APIRouter(tags=["songs"])
@@ -27,6 +31,11 @@ router = APIRouter(tags=["songs"])
 AUDIO_EXTENSIONS = {"mp3", "wav", "m4a", "flac", "ogg", "opus", "aac", "wma", "aif", "aiff"}
 VIDEO_EXTENSIONS = {"mp4", "mov", "webm", "mkv", "avi", "3gp"}
 StemName = Literal["mix", "vocals", "bass", "drums", "guitar", "piano", "other"]
+STEMS = ("vocals", "bass", "drums", "guitar", "piano", "other")
+CURRENT_ANALYSIS = 2  # разборы старее — без темпа по тактам, гитары из записи и текста
+
+_mix_locks: dict[str, threading.Lock] = {}
+_mix_guard = threading.Lock()
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 EngineDep = Annotated[Engine, Depends(get_engine)]
@@ -202,29 +211,99 @@ def _transcription(path: str, mtime: float) -> Transcription:
     return Transcription.from_dict(_load_analysis(path, mtime)["transcription"])
 
 
+@lru_cache(maxsize=16)
+def _load_lyrics(path: str, mtime: float) -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
+    return data
+
+
+def _lyrics(settings: Settings, song_id: str) -> dict[str, Any] | None:
+    path = settings.song_dir(song_id) / "lyrics.json"
+    if not path.exists():
+        return None
+    return _load_lyrics(str(path), path.stat().st_mtime)
+
+
 @router.get("/songs/{song_id}/analysis")
 def song_analysis(song_id: str, settings: SettingsDep, engine: EngineDep) -> dict[str, Any]:
     path = _analysis_path(settings, engine, song_id)
     data = _load_analysis(str(path), path.stat().st_mtime)
     tx = data["transcription"]
+    lyrics = _lyrics(settings, song_id)
+    version = int(data.get("version", 1))
     return {
+        "version": version,
+        "outdated": version < CURRENT_ANALYSIS,
         "duration": data["duration"],
         "tempo": tx["tempo"],
         "beats_per_bar": tx["beats_per_bar"],
         "bars": tx["bars"],
         "bar_times": data["bar_times"],
+        "bar_seconds": tx.get("bar_seconds", []),
         "key": data["key"],
         "key_confidence": data.get("key_confidence"),
         "stems": data.get("stems", []),
         "warnings": data.get("warnings", []),
+        "guitar_source": tx.get("guitar_source", ""),
         "counts": {
             "chords": len(tx["chords"]),
             "melody": len(tx["melody"]),
             "bass": len(tx["bass"]),
+            "guitar": len(tx.get("guitar", [])),
+            "lyrics_lines": len(lyrics["lines"]) if lyrics else 0,
         },
         "device": data.get("device"),
         "timings": data.get("timings", {}),
     }
+
+
+def _to_step(times: list[float], seconds: float) -> int | None:
+    """Секунды записи → шаг сетки (шестнадцатая) по долям из разбора."""
+    if len(times) < 2:
+        return None
+    i = bisect.bisect_right(times, seconds) - 1
+    i = max(0, min(i, len(times) - 2))
+    span = times[i + 1] - times[i]
+    if span <= 0:
+        return None
+    beat = i + (seconds - times[i]) / span
+    return round(beat * STEPS_PER_BEAT) if beat >= 0 else None
+
+
+def _words(analysis: dict[str, Any], lyrics: dict[str, Any] | None) -> list[tuple[int, str]]:
+    if not lyrics:
+        return []
+    times = [float(t) for t in analysis.get("beats", [])]
+    out: list[tuple[int, str]] = []
+    for line in lyrics.get("lines", []):
+        for word in line.get("words", []):
+            step = _to_step(times, float(word["start"]))
+            if step is not None:
+                out.append((step, str(word["text"])))
+    return out
+
+
+@router.get("/songs/{song_id}/lyrics")
+def song_lyrics(song_id: str, settings: SettingsDep, engine: EngineDep) -> dict[str, Any]:
+    """Слова с таймингом в секундах записи. Пусто — текста нет или разбор старый."""
+    _get(engine, song_id)
+    return _lyrics(settings, song_id) or {"version": 1, "source": None, "lines": []}
+
+
+@router.put("/songs/{song_id}/lyrics")
+def save_lyrics(
+    song_id: str, body: LyricsIn, settings: SettingsDep, engine: EngineDep
+) -> dict[str, Any]:
+    """Свой вариант текста (правка вручную): строки и слова с таймингом."""
+    _get(engine, song_id)
+    folder = settings.song_dir(song_id)
+    if not folder.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка разбора потерялась.")
+    data = {"version": 1, "source": "edited", **body.model_dump(exclude={"source"})}
+    tmp = folder / "lyrics.tmp"
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(folder / "lyrics.json")
+    return data
 
 
 @router.post("/songs/{song_id}/arrangement")
@@ -252,7 +331,9 @@ def song_arrangement(
     except ValueError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     data = arrangement_to_dict(result)
-    data["alphatex"] = to_alphatex(result, title=song.title, artist=song.artist)
+    analysis = _load_analysis(str(path), path.stat().st_mtime)
+    words = _words(analysis, _lyrics(settings, song_id)) if body.lyrics_in_tabs else []
+    data["alphatex"] = to_alphatex(result, title=song.title, artist=song.artist, words=words)
     data["title"] = song.title
     data["artist"] = song.artist
     return data
@@ -267,3 +348,57 @@ def song_audio(
     if not path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Этой дорожки нет.")
     return FileResponse(path, media_type="audio/mpeg")
+
+
+def _mixdown(folder: Path, keep: list[str], out: Path) -> None:
+    """Сумма выбранных дорожек → mp3 (ffmpeg amix без нормализации: громкость как в оригинале)."""
+    from fretlines_worker.audio import ffmpeg
+
+    inputs: list[str] = []
+    for name in keep:
+        inputs += ["-i", str(folder / f"{name}.mp3")]
+    mixer = f"amix=inputs={len(keep)}:duration=longest:normalize=0"
+    tmp = out.with_suffix(".tmp.mp3")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    result = subprocess.run(
+        [ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", *inputs,
+         "-filter_complex", mixer, "-c:a", "libmp3lame", "-b:a", "160k", str(tmp)],
+        capture_output=True,
+        check=False,
+        creationflags=flags,
+    )  # fmt: skip
+    if result.returncode != 0 or not tmp.exists():
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не получилось свести дорожки.")
+    tmp.replace(out)
+
+
+@router.get("/songs/{song_id}/mix")
+def song_mix(
+    song_id: str,
+    settings: SettingsDep,
+    engine: EngineDep,
+    without: Annotated[str, Query(max_length=80)] = "",
+) -> FileResponse:
+    """Запись без выбранных дорожек: «без гитары» — играть поверх, «без вокала» — караоке.
+
+    Сведение делается один раз и кэшируется рядом со стемами.
+    """
+    _get(engine, song_id)
+    folder = settings.song_dir(song_id) / "stems"
+    muted = sorted({name for name in without.split(",") if name in STEMS})
+    if not muted:
+        path = folder / "mix.mp3"
+    else:
+        keep = [name for name in STEMS if name not in muted]
+        if not keep or any(not (folder / f"{name}.mp3").exists() for name in keep):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Дорожек для сведения нет.")
+        path = folder / f"mix-without-{'+'.join(muted)}.mp3"
+        with _mix_guard:
+            lock = _mix_locks.setdefault(song_id, threading.Lock())
+        with lock:
+            if not path.exists():
+                _mixdown(folder, keep, path)
+    if not path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Этой дорожки нет.")
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "max-age=3600"})

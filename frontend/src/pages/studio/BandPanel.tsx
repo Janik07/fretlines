@@ -8,6 +8,7 @@ import { EASE_FILM } from "../../lib/motion";
 import { applyPreset, newPlayer, presetOf, ROLE_LABELS, ROLE_ORDER } from "./setup";
 
 const PRESETS = [
+  { value: "record", label: "Оригинал" },
   { value: "solo", label: "Соло" },
   { value: "duo", label: "Дуэт" },
   { value: "trio", label: "Трио" },
@@ -26,9 +27,17 @@ const KINDS: { value: InstrumentKind; label: string }[] = [
   { value: "bass", label: "Бас" },
 ];
 
+/** Роль добавляется к ролям игрока. «Как в записи» — целая партия: она не сочетается с другими. */
+function withRole(roles: Role[], role: Role): Role[] {
+  if (role === "original") return ["original"];
+  const rest: Role[] = roles.filter((r) => r !== "original");
+  return ROLE_ORDER.filter((r) => r === role || rest.includes(r));
+}
+
 /** Фактура линии партии — та же, что в легенде дизайн-системы (SPEC §2.2). */
 export function RoleMark({ role }: { role: Role }) {
   const style: Record<Role, { stroke: string; width: number; dash?: string; cap?: "round" }> = {
+    original: { stroke: "var(--part-melody)", width: 2.6, dash: "10 2.5" },
     melody: { stroke: "var(--part-melody)", width: 1.6 },
     bass: { stroke: "var(--part-bass)", width: 3.6 },
     rhythm: { stroke: "var(--part-rhythm)", width: 2, dash: "5 3.5" },
@@ -78,8 +87,7 @@ function PlayerCard({
   function toggleRole(role: Role) {
     const has = player.roles.includes(role);
     if (has && player.roles.length === 1) return;
-    const roles = has ? player.roles.filter((r) => r !== role) : ROLE_ORDER.filter((r) => r === role || player.roles.includes(r));
-    onChange({ ...player, roles });
+    onChange({ ...player, roles: has ? player.roles.filter((r) => r !== role) : withRole(player.roles, role) });
   }
 
   return (
@@ -156,7 +164,13 @@ function PlayerCard({
                 toggleRole(role);
               }}
               className="chip"
-              title={active ? "Перетащи на другого игрока, чтобы передать роль" : undefined}
+              title={
+                active
+                  ? "Перетащи на другого игрока, чтобы передать роль"
+                  : role === "original"
+                    ? "Ноты и ритм гитары прямо из записи — звучит как в оригинале"
+                    : undefined
+              }
             >
               <RoleMark role={role} />
               {ROLE_LABELS[role]}
@@ -290,7 +304,7 @@ export function BandPanel({
         return { ...p, roles: roles.length ? roles : p.roles };
       }
       if (p.id === to && !p.roles.includes(role)) {
-        return { ...p, roles: ROLE_ORDER.filter((r) => r === role || p.roles.includes(r)) };
+        return { ...p, roles: withRole(p.roles, role) };
       }
       return p;
     });
@@ -308,6 +322,7 @@ export function BandPanel({
       <Segmented
         size="sm"
         label="Пресет состава"
+        fill
         value={preset ?? ""}
         onChange={(id) => {
           const players = applyPreset(meta, id, setup.players);

@@ -15,9 +15,7 @@ uv sync --frozen
 echo "== Интерфейс"
 (cd frontend && npm ci --no-fund --no-audit && npm run build)
 
-echo "== Модели (Demucs, Beat This!)"
-export HF_HOME="$PWD/.models/hf" TORCH_HOME="$PWD/.models/torch" HF_HUB_DISABLE_TELEMETRY=1
-uv run --no-sync python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')"
-uv run --no-sync python -c "from beat_this.inference import load_checkpoint; load_checkpoint('final0')"
+echo "== Модели (Demucs, Beat This!, Basic Pitch, Whisper, банк звуков)"
+uv run --no-sync python scripts/fetch_models.py
 
 echo "== Fretlines готов"

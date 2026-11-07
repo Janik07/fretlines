@@ -67,7 +67,7 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = [
     "beat_this.*", "demucs.*", "imageio_ffmpeg.*", "librosa.*", "scipy.*", "soundfile.*",
-    "torchaudio.*", "torchcrepe.*", "yt_dlp.*",
+    "torchaudio.*", "torchcrepe.*", "yt_dlp.*", "onnxruntime.*", "faster_whisper.*",
 ]
 ignore_missing_imports = true
 

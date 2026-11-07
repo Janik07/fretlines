@@ -78,6 +78,12 @@ class BeatGrid:
     def bar_times(self) -> list[float]:
         return [round(float(t), 4) for t in self.times[:: self.beats_per_bar]]
 
+    def bar_seconds(self) -> tuple[float, ...]:
+        """Начала всех тактов и конец последнего — для темпа «как в записи» по тактам."""
+        step = float(self.times[-1] - self.times[-2])
+        starts = [float(t) for t in self.times[:: self.beats_per_bar]]
+        return tuple(round(t, 4) for t in [*starts, float(self.times[-1]) + step])
+
 
 def _meter(times: NDArray[np.float64], downbeats: Sequence[float]) -> int:
     """Долей в такте по расстояниям между сильными долями: обычно 4, бывает 3."""
