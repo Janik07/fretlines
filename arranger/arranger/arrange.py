@@ -141,7 +141,9 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
         )
     elif "original" in roles and h is not None:
         # Партия из записи самодостаточна: остальные роли этого игрока она и так покрывает.
-        beats, played = original_part(ctx, instrument, level, h), ["original"]
+        # Аппликатуры в ней свои — в той позиции грифа, где играет запись.
+        beats, h = original_part(ctx, instrument, level, h)
+        played = ["original"]
         if ctx.tx.guitar_source == "keys":
             warnings.append("Гитары в записи почти не слышно — партия собрана по клавишным.")
     elif "melody" in roles and roles & {"bass", "rhythm"} and h is not None:
@@ -179,9 +181,10 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
 
     issues = playability_issues(beats, instrument, SPAN[level])
     warnings.extend(f"Неудобное место: {issue}" for issue in issues[:3])
-    shown = {beat.chord for beat in beats if beat.chord and len(beat.notes) >= 3}
     shapes: tuple[ChordShape, ...] = ()
     if h is not None and "original" in played:
+        # Ноты партии взяты из аппликатур — показываем все, по которым она играется.
+        shown = {beat.chord for beat in beats if beat.chord}
         shapes = tuple(s for s in h.shapes() if s.name in shown)
     elif h is not None and roles & {"rhythm", "pad"}:
         shapes = h.shapes()
@@ -217,7 +220,7 @@ def arrange(tx: Transcription, players: Sequence[PlayerSetup], transpose: int = 
     hints: dict[str, tuple[CapoOption, ...]] = {}
     spans = tuple(ChordSpan(s.start, s.end, s.chord.transposed(transpose)) for s in tx.chords)
     for player in players:
-        if player.kind != "bass" and set(player.roles) & {"rhythm", "pad"}:
+        if player.kind != "bass" and set(player.roles) & {"rhythm", "pad", "original"}:
             bare = make_instrument(player.kind, player.tuning, 0)
             hints[player.id] = tuple(suggest_capo(spans, bare, player.difficulty)[:3])
     return Arrangement(

@@ -13,6 +13,7 @@ import bisect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
+from itertools import pairwise
 
 from arranger.fingering import Assignment, finger_events, finger_line
 from arranger.instruments import Instrument
@@ -27,7 +28,7 @@ from arranger.model import (
     Transcription,
 )
 from arranger.theory import Chord, Key
-from arranger.voicings import SPAN, Voicing, choose_voicings
+from arranger.voicings import SPAN, Voicing, best_path, choose_voicings, neck_voicings
 
 GRID: dict[Difficulty, int] = {"easy": 2, "medium": 2, "full": 1}
 MAX_FRET: dict[Difficulty, int] = {"easy": 7, "medium": 12, "full": 99}
@@ -387,6 +388,7 @@ class Harmony:
     timeline: list[StepChord]
     voicings: list[Voicing | None]
     names: list[str]
+    chords: list[Chord]  # что взято на грифе: с перегрузом — пауэр-аккорды вместо полных
 
     def shapes(self) -> tuple[ChordShape, ...]:
         seen: dict[str, ChordShape] = {}
@@ -404,7 +406,7 @@ def harmony(
     chords = [Chord(c.chord.root, "5") if power else c.chord for c in timeline]
     voicings = choose_voicings(chords, instrument, level)
     names = [_shape_name(chord, instrument, ctx.key) for chord in chords]
-    return Harmony(timeline, voicings, names)
+    return Harmony(timeline, voicings, names, chords)
 
 
 def _event_times(ctx: Context, slots: Sequence[int], timeline: Sequence[StepChord]) -> list[int]:
@@ -521,6 +523,19 @@ _STRUM_NOTES = 3  # столько нот на одной доле — это у
 _STRUM_SPREAD = 0.1
 # Такт считается «боем», если в нём столько ударов (созвучий от двух нот) от всех событий.
 _STRUM_BAR_SHARE = 0.6
+# …или если верхняя нота раз за разом повторяется: в бое модель на отделённой дорожке часто
+# слышит только верхнюю струну, а в переборе соседние ноты идут по разным струнам. Повторы
+# ниже G3 — это бас, а не бой.
+_TREBLE = 55
+_TREBLE_SHARE = 0.7
+_REPEAT_SHARE = 0.4
+# Столько нот мимо аккорда — это уже мелодия (рифф, соло): её играем нота в ноту.
+_LINE_SHARE = 0.3
+# Насколько важнее попасть аппликатурой в ноты записи, чем взять самую удобную; уверенность
+# растёт с числом нот на аккорд — по одной-двум нотам позицию на грифе не угадать.
+_REGISTER_W = 8.0
+_EVIDENCE = 3.0
+_UP_STRINGS = 3  # удар вверх задевает три тонкие струны
 
 
 @dataclass(frozen=True, slots=True)
@@ -596,73 +611,195 @@ def _thin(group: _Group, voices: int) -> tuple[int, ...]:
     return tuple(sorted(keep))
 
 
+def _register_fit(
+    voicing: Voicing, heard: Sequence[tuple[int, float]], instrument: Instrument
+) -> float:
+    """Какую долю нот записи аппликатура берёт той же высотой (тон в другой октаве — за шестую)."""
+    sounding = {pitch for _, _, pitch in voicing.notes(instrument)}
+    classes = {pitch % 12 for pitch in sounding}
+    exact = near = 0.0
+    for pitch, weight in heard:
+        if pitch in sounding:
+            exact += weight
+        elif pitch % 12 in classes:
+            near += weight
+    if exact + near == 0:
+        return 1.0
+    return (exact + near / 6) / (exact + near)
+
+
+def recorded_harmony(
+    groups: Sequence[_Group], h: Harmony, instrument: Instrument, level: Difficulty
+) -> Harmony:
+    """Аппликатуры там, где на грифе звучит запись, а не просто самые удобные.
+
+    Для каждого аккорда перебираем позиции по всему грифу и выбираем ту, что берёт больше
+    услышанных нот той же высотой; переезды руки между аккордами по-прежнему стоят дорого.
+    """
+    at = _segment_index(h.timeline)
+    heard: list[list[tuple[int, float]]] = [[] for _ in h.timeline]
+    for group in groups:
+        segment = at(group.start)
+        if segment is not None:
+            pairs = zip(group.pitches, group.loudness, strict=True)
+            heard[segment].extend((pitch, loud / 100) for pitch, loud in pairs)
+    options: list[tuple[Voicing, ...]] = []
+    costs: list[list[float]] = []
+    for chord, notes in zip(h.chords, heard, strict=True):
+        # Где гитара молчит, позицию не выбираем — там остаётся удобная аппликатура, и она
+        # не тянет руку из той позиции, где гитара играет.
+        candidates = neck_voicings(chord, instrument, level, MAX_FRET[level]) if notes else ()
+        trust = _REGISTER_W * min(1.0, sum(w for _, w in notes) / _EVIDENCE)
+        fits = [_register_fit(v, notes, instrument) for v in candidates]
+        options.append(candidates)
+        costs.append([v.cost + trust * (1 - fit) for v, fit in zip(candidates, fits, strict=True)])
+    chosen = best_path(options, costs)
+    voicings = [new or old for new, old in zip(chosen, h.voicings, strict=True)]
+    return Harmony(h.timeline, voicings, h.names, h.chords)
+
+
+def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h: Harmony) -> str:
+    """Что гитара делает в такте: "strum" — бой, "pick" — перебор по аккорду, "line" — мелодия.
+
+    Решаем по такту целиком: в бое число нот на удар скачет (часть струн модель не слышит),
+    и по одному удару табы превращаются в мешанину аккордов и двузвучий.
+    """
+    multi = sum(len(g.pitches) >= 2 for g in items)
+    if (
+        len(items) >= 2
+        and any(len(g.pitches) >= _STRUM_NOTES for g in items)
+        and multi >= _STRUM_BAR_SHARE * len(items)
+    ):
+        return "strum"
+    tops = [(segment_at(g.start), g.pitches[-1]) for g in items if g.pitches[-1] >= _TREBLE]
+    repeats = sum(a == b for a, b in pairwise(tops))  # та же нота на том же аккорде
+    if (
+        len(tops) >= 5
+        and len(tops) >= _TREBLE_SHARE * len(items)
+        and repeats >= _REPEAT_SHARE * (len(tops) - 1)
+    ):
+        return "strum"
+    outside = total = 0
+    for group in items:
+        segment = segment_at(group.start)
+        for pitch in group.pitches:
+            total += 1
+            outside += segment is None or pitch % 12 not in h.timeline[segment].chord.pitch_classes
+    return "line" if outside >= _LINE_SHARE * total else "pick"
+
+
+def _snap(group: _Group, shape: Sequence[tuple[int, int, int]]) -> list[tuple[int, int]]:
+    """Ноты удара → струны аппликатуры: та же высота, иначе тот же тон в соседней октаве.
+
+    Чего в аппликатуре нет, отбрасываем: гитарист держит аккорд, а лишняя нота на отделённой
+    дорожке — чаще всего обертон или просочившийся соседний инструмент.
+    """
+    used: set[int] = set()
+    out: list[tuple[int, int]] = []
+    for i in sorted(range(len(group.pitches)), key=lambda i: -group.loudness[i]):
+        pitch = group.pitches[i]
+        near = [
+            (abs(sounding - pitch), string, fret)
+            for string, fret, sounding in shape
+            if string not in used and sounding % 12 == pitch % 12 and abs(sounding - pitch) <= 12
+        ]
+        if near:
+            _, string, fret = min(near)
+            used.add(string)
+            out.append((string, fret))
+    return sorted(out)
+
+
+def _stroke_strings(
+    shape: Sequence[tuple[int, int, int]], snapped: Sequence[tuple[int, int]], stroke: Stroke
+) -> tuple[tuple[int, int], ...]:
+    """Вниз — по всей аппликатуре; вверх — по тонким струнам (и до самой толстой услышанной)."""
+    strings = sorted(string for string, _, _ in shape)
+    reach = strings[-1]
+    if stroke == "up":
+        reach = max([*strings[:_UP_STRINGS][-1:], *(string for string, _ in snapped)])
+    return tuple((string, fret) for string, fret, _ in shape if string <= reach)
+
+
 def original_part(
     ctx: Context, instrument: Instrument, level: Difficulty, h: Harmony
-) -> list[TabBeat]:
-    """Партия «как в записи»: ритм и ноты гитары оригинала.
+) -> tuple[list[TabBeat], Harmony]:
+    """Партия «как в записи»: ритм и ноты гитары оригинала, разложенные по аккордам.
 
-    Там, где в записи бьют по аккорду (три ноты и больше разом), берётся удобная аппликатура
-    этого аккорда — так табы чище, а звучит так же. Рифы и переборы раскладываются по грифу
-    нота в ноту.
+    Гитарист держит аппликатуру аккорда и играет её струны — поэтому каждая услышанная нота
+    ложится на струну аппликатуры, взятой в той позиции грифа, где звучит запись. В бое
+    играется весь аккорд (вверх — тонкие струны), в переборе — услышанные струны, а мелодия
+    (рифф, соло, где много нот мимо аккорда) раскладывается по грифу нота в ноту.
+    Возвращает и аккорды с выбранными аппликатурами — для диаграмм над табами.
     """
     groups = original_groups(ctx, instrument, level)
     if not groups:
-        return []
-    # Бой или перебор решаем по такту целиком: в бое число нот на удар скачет (часть струн
-    # модель не слышит), и по одному удару табы превращаются в мешанину аккордов и двузвучий.
+        return [], h
+    if level != "easy":  # на «легко» — самые удобные аппликатуры, позиция записи не важна
+        h = recorded_harmony(groups, h, instrument, level)
+    at = _segment_index(h.timeline)
     per_bar: dict[int, list[_Group]] = {}
     for group in groups:
         per_bar.setdefault(group.start // ctx.bar_steps, []).append(group)
-    strummed_bars = {
-        bar
-        for bar, items in per_bar.items()
-        if len(items) >= 2
-        and sum(len(g.pitches) >= 2 for g in items) >= _STRUM_BAR_SHARE * len(items)
-        and sum(len(g.pitches) >= _STRUM_NOTES for g in items) >= 1
-    }
+    texture = {bar: _texture(items, at, h) for bar, items in per_bar.items()}
     if level == "easy":  # на «легко» в бое — только удары на доли
         groups = [
             g
             for g in groups
-            if g.start // ctx.bar_steps not in strummed_bars or g.start % STEPS_PER_BEAT == 0
+            if texture[g.start // ctx.bar_steps] != "strum" or g.start % STEPS_PER_BEAT == 0
         ]
-    at = _segment_index(h.timeline)
+
     events: list[tuple[float, tuple[int, ...], Assignment | None]] = []
-    strums: list[bool] = []
+    strokes: list[Stroke | None] = []
+    played: list[_Group] = []
     for group in groups:
         segment = at(group.start)
         voicing = h.voicings[segment] if segment is not None else None
-        in_strum = group.start // ctx.bar_steps in strummed_bars
-        if voicing is not None and (in_strum or len(group.pitches) >= _STRUM_NOTES):
-            fixed = tuple((s, f) for s, f, _ in voicing.notes(instrument))
-            pitches = tuple(p for _, _, p in voicing.notes(instrument))
-            events.append((group.start / STEPS_PER_BEAT, pitches, fixed))
-            strums.append(True)
+        kind = texture[group.start // ctx.bar_steps]
+        time = group.start / STEPS_PER_BEAT
+        if voicing is None or (kind == "line" and len(group.pitches) < _STRUM_NOTES):
+            events.append((time, _thin(group, _ORIGINAL_VOICES[level]), None))
+            strokes.append(None)
+            played.append(group)
+            continue
+        shape = voicing.notes(instrument)
+        snapped = _snap(group, shape)
+        stroke: Stroke | None = None
+        if kind == "strum" or len(group.pitches) >= _STRUM_NOTES:
+            # Рука ходит вверх-вниз по сетке уровня: вниз — на долю (или восьмую), вверх — между.
+            stroke = "down" if group.start % (2 * GRID[level]) == 0 else "up"
+            chosen = _stroke_strings(shape, snapped, stroke)
+        elif snapped:
+            # Верхние струны и бас перебора — сколько нот разом позволяет уровень.
+            voices = _ORIGINAL_VOICES[level]
+            if len(snapped) <= voices:
+                chosen = tuple(snapped)
+            elif voices == 1:
+                chosen = (snapped[0],)
+            else:
+                chosen = (*snapped[: voices - 1], snapped[-1])
         else:
-            pitches = _thin(group, _ORIGINAL_VOICES[level])
-            events.append((group.start / STEPS_PER_BEAT, pitches, None))
-            strums.append(False)
+            continue  # только ноты мимо аккорда — шум, а не перебор
+        pitches = tuple(instrument.pitch_at(string, fret) for string, fret in chosen)
+        events.append((time, pitches, chosen))
+        strokes.append(stroke)
+        played.append(group)
 
     fingered = finger_events(events, instrument, span=SPAN[level], max_fret=MAX_FRET[level])
     beats: list[TabBeat] = []
     last_segment: int | None = None
-    for group, strum, option in zip(groups, strums, fingered, strict=True):
+    for group, stroke, option in zip(played, strokes, fingered, strict=True):
         if option is None:
             continue
         notes = tuple(
             TabNote(string, fret, instrument.pitch_at(string, fret)) for string, fret in option
         )
-        stroke: Stroke | None = None
-        if strum:
-            # Рука ходит вверх-вниз по сетке уровня: вниз — на долю (или восьмую), вверх — между.
-            on_beat = group.start % (2 * GRID[level]) == 0
-            stroke = "down" if on_beat else "up"
         segment = at(group.start)
         label = h.names[segment] if segment is not None and segment != last_segment else None
         if segment is not None:
             last_segment = segment
         beats.append(TabBeat(group.start, group.end - group.start, notes, stroke, label))
-    return beats
+    return beats, h
 
 
 # ─── Сочетания ролей ──────────────────────────────────────────────────────

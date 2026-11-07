@@ -172,14 +172,39 @@ def playable_voicings(
     return ()
 
 
-def choose_voicings(
-    chords: Sequence[Chord], instrument: Instrument, level: Difficulty
-) -> list[Voicing | None]:
-    """Аппликатуры для последовательности аккордов с минимумом переездов руки.
+@lru_cache(maxsize=4096)
+def neck_voicings(
+    chord: Chord, instrument: Instrument, level: Difficulty, max_fret: int
+) -> tuple[Voicing, ...]:
+    """По две лучших аппликатуры в каждой позиции грифа — чтобы взять ту, где играет запись.
 
-    Витерби по каждому непрерывному участку; аккорд без аппликатуры (None) рвёт цепочку.
+    Открытые струны — только в первой позиции: открытая струна под аккордом на седьмом ладу
+    звучит и выглядит в табах странно, так почти не играют.
     """
-    options = [playable_voicings(c, instrument, level) for c in chords]
+    for candidate in (chord, chord.simplified(), Chord(chord.root, "5")):
+        every = tuple(
+            v
+            for v in chord_voicings(candidate, instrument, level, limit=100_000)
+            if (top := max(f for f in v.frets if f is not None)) <= max_fret
+            and (top <= 4 or 0 not in v.frets)
+        )
+        if every:
+            break
+    best: dict[int, list[Voicing]] = {}
+    for voicing in every:  # уже по возрастанию стоимости
+        bucket = best.setdefault(voicing.position, [])
+        if len(bucket) < 2:
+            bucket.append(voicing)
+    return tuple(v for position in sorted(best) for v in best[position])
+
+
+def best_path(
+    options: Sequence[Sequence[Voicing]], costs: Sequence[Sequence[float]]
+) -> list[Voicing | None]:
+    """Витерби: у каждого аккорда своя цена аппликатуры, плюс переезды руки между ними.
+
+    Аккорд без аппликатур рвёт цепочку — участки до и после него выбираются отдельно.
+    """
     chosen: list[Voicing | None] = [None] * len(options)
     start = 0
     while start < len(options):
@@ -189,28 +214,36 @@ def choose_voicings(
         end = start
         while end < len(options) and options[end]:
             end += 1
-        costs = [v.cost for v in options[start]]
+        total = list(costs[start])
         backs: list[list[int]] = []
         for i in range(start + 1, end):
             prev = options[i - 1]
             step_costs: list[float] = []
             step_backs: list[int] = []
-            for voicing in options[i]:
+            for voicing, own in zip(options[i], costs[i], strict=True):
                 cost, back = min(
-                    (costs[p] + 0.25 * abs(voicing.position - prev[p].position), p)
+                    (total[p] + 0.25 * abs(voicing.position - prev[p].position), p)
                     for p in range(len(prev))
                 )
-                step_costs.append(cost + voicing.cost)
+                step_costs.append(cost + own)
                 step_backs.append(back)
-            costs = step_costs
+            total = step_costs
             backs.append(step_backs)
-        pick = min(range(len(costs)), key=costs.__getitem__)
+        pick = min(range(len(total)), key=total.__getitem__)
         for i in range(end - 1, start - 1, -1):
             chosen[i] = options[i][pick]
             if i > start:
                 pick = backs[i - start - 1][pick]
         start = end
     return chosen
+
+
+def choose_voicings(
+    chords: Sequence[Chord], instrument: Instrument, level: Difficulty
+) -> list[Voicing | None]:
+    """Аппликатуры для последовательности аккордов с минимумом переездов руки."""
+    options = [playable_voicings(c, instrument, level) for c in chords]
+    return best_path(options, [[v.cost for v in o] for o in options])
 
 
 @dataclass(frozen=True, slots=True)

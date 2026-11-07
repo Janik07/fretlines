@@ -43,6 +43,41 @@ def test_strums_become_chord_shapes_and_riffs_single_notes(song: Transcription) 
     assert any(s.name == "C" for s in part.shapes)
 
 
+def test_strum_heard_only_by_its_top_string_is_played_as_full_strokes(song: Transcription) -> None:
+    # На отделённой дорожке модель часто слышит в бое лишь верхнюю струну: E4, E4, G4, E4…
+    tops = [64, 64, 67, 64] * 4
+    notes = tuple(Note(i * 0.25, 0.2, pitch, 90) for i, pitch in enumerate(tops))
+    part = arrange(replace(song, guitar=notes, guitar_source="guitar"), [_player("full")]).parts[0]
+    bar = [b for b in part.beats if b.start < 4 * STEPS_PER_BEAT]
+    assert len(bar) == 16
+    assert all(len(b.notes) >= 3 for b in bar)
+    assert [b.stroke for b in bar[:4]] == ["down", "up", "down", "up"]
+    assert all(b.notes[0].string == 1 for b in bar)  # и вниз, и вверх задевают тонкие струны
+
+
+def test_shape_is_taken_where_the_recording_is_played(song: Transcription) -> None:
+    # Перебор по C на восьмом ладу: C4 E4 G4 C5 — внизу грифа так не взять.
+    pattern = [60, 64, 67, 72, 67, 64] * 2
+    notes = tuple(Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(pattern))
+    part = arrange(replace(song, guitar=notes, guitar_source="guitar"), [_player("full")]).parts[0]
+    picked = [b for b in part.beats if b.start < 8 * STEPS_PER_BEAT]
+    assert [b.notes[0].pitch for b in picked] == pattern  # высоты те же, без переноса октав
+    frets = [n.fret for b in picked for n in b.notes]
+    assert min(frets) >= 5  # не внизу грифа
+    assert max(frets) - min(frets) < 4  # одна аппликатура
+
+
+def test_picked_notes_stay_in_the_chord_and_stray_ones_are_dropped(song: Transcription) -> None:
+    # Перебор по C восьмыми; C#4 — просочившийся соседний инструмент.
+    pattern = [*[48, 55, 60, 64, 60, 55, 48, 55], *[48, 55, 61, 64, 60, 55, 48, 55]]
+    notes = tuple(Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(pattern))
+    part = arrange(replace(song, guitar=notes, guitar_source="guitar"), [_player("full")]).parts[0]
+    pitches = [n.pitch for b in part.beats for n in b.notes]
+    assert len(pitches) == len(pattern) - 1
+    assert all(p % 12 in (0, 4, 7) for p in pitches)
+    assert all(b.stroke is None for b in part.beats)  # это перебор, а не бой
+
+
 def test_easy_level_keeps_only_strums_on_the_beat(song: Transcription) -> None:
     part = arrange(_strummed_then_riff(song), [_player("easy")]).parts[0]
     strums = [b for b in part.beats if b.start < 2 * 4 * STEPS_PER_BEAT]
