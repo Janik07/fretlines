@@ -1,0 +1,16 @@
+# Контекст сборки Docker (Hugging Face Space): только исходники.
+.git
+.venv
+.tools
+.models
+.cache
+storage
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+frontend/node_modules
+frontend/dist
+frontend/public/font
+frontend/public/soundfont
+.env

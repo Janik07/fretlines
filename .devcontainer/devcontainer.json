@@ -1,0 +1,20 @@
+{
+  // Fretlines в GitHub Codespaces: при создании ставим всё сами, при каждом старте поднимаем
+  // приложение на порту 8080. Ссылка на порт приватная — открывается только под твоим GitHub.
+  "name": "Fretlines",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" }
+  },
+  // 4 ядра: песня разбирается быстрее. Бесплатного лимита (120 ядро-часов в месяц) хватит на ~30 часов.
+  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "32gb" },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Fretlines", "onAutoForward": "openBrowser" }
+  },
+  "customizations": {
+    "codespaces": { "openFiles": [".devcontainer/README.md"] }
+  }
+}
