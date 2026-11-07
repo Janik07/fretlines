@@ -46,8 +46,10 @@ def main() -> None:
     print("== MDX-Net Inst HQ4 (вокал и инструментал)", flush=True)
     from audio_separator.separator import Separator
 
+    from fretlines_worker.audio import ffmpeg_on_path
     from fretlines_worker.separation import VOCAL_MODELS
 
+    ffmpeg_on_path()  # audio-separator ищет ffmpeg по имени
     separator = Separator(model_file_dir=str(MODELS / "separator"), info_only=False)
     separator.download_model_and_data(VOCAL_MODELS["cpu"])
 

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+import sys
+import tempfile
 from functools import cache
 from itertools import pairwise
 from pathlib import Path
@@ -23,6 +27,29 @@ def ffmpeg() -> str:
     import imageio_ffmpeg
 
     return str(imageio_ffmpeg.get_ffmpeg_exe())
+
+
+def ffmpeg_on_path() -> None:
+    """audio-separator зовёт ffmpeg по имени — если его нет в системе, подкладываем наш.
+
+    ffmpeg из imageio-ffmpeg лежит под длинным именем (ffmpeg-linux-x86_64-v7…), поэтому в
+    отдельной папке делаем на него ссылку «ffmpeg» и ставим эту папку первой в PATH.
+    """
+    if shutil.which("ffmpeg"):
+        return
+    folder = Path(tempfile.gettempdir()) / "fretlines-bin"
+    folder.mkdir(exist_ok=True)
+    target = folder / ("ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+    if not target.exists():
+        source = Path(ffmpeg())
+        try:
+            if sys.platform == "win32":
+                os.link(source, target)  # жёсткая ссылка: без прав администратора и без копии
+            else:
+                target.symlink_to(source)
+        except OSError:
+            shutil.copy2(source, target)
+    os.environ["PATH"] = str(folder) + os.pathsep + os.environ.get("PATH", "")
 
 
 def _run(args: list[str], data: bytes | None = None) -> bytes:

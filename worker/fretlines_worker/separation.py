@@ -89,6 +89,9 @@ def split_vocals(
     import soundfile as sf
     from audio_separator.separator import Separator
 
+    from fretlines_worker.audio import ffmpeg_on_path
+
+    ffmpeg_on_path()
     kind = "cuda" if device.startswith("cuda") else "cpu"
     workdir.mkdir(parents=True, exist_ok=True)
     source = workdir / "mix.wav"
