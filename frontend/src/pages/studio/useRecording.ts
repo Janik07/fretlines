@@ -130,6 +130,12 @@ export function useRecording(
       }
       const target = tickToSeconds(map, tick);
       audio.dataset.target = target.toFixed(3);
+      if (target < 0) {
+        // Первый такт начинается раньше записи (затакт до первого звука): запись ждёт нуля.
+        if (!audio.paused) audio.pause();
+        if (audio.currentTime > 0.05 && audio.readyState >= 1) audio.currentTime = 0;
+        return;
+      }
       if (!playing || !moving) {
         if (!audio.paused) audio.pause();
         if (Math.abs(audio.currentTime - target) > 0.05 && audio.readyState >= 1) {
