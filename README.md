@@ -1,128 +1,112 @@
 # Fretlines
 
-Гитарный аранжировщик для ансамбля. Даёшь песню — файл или ссылку с YouTube или TikTok — и
-получаешь партии для 1–4 гитар: мелодию, ритм, бас, перебор. Каждому игроку по его уровню,
-с табами, аккордами и плеером, который сам играет партии гитарным звуком.
+**English** · [Русский](README.ru.md)
 
-Всё работает на твоём компьютере: файлы и разборы никуда не уходят. ТЗ и дизайн-система лежат
-в [SPEC.md](SPEC.md).
+A guitar arranger for small bands. Give it a song (an audio or video file, or a YouTube or
+TikTok link) and it writes parts for 1–4 guitars: melody, rhythm, bass and fingerpicking. Each
+player gets a part at their own level, with tabs, chord diagrams and a player that plays the
+parts with a guitar sound.
 
-## Запуск
+![Studio: the band setup on the left, a player's part as tabs with chord diagrams on the right](docs/screens/studio.png)
 
-Дважды кликни **`start.bat`**. Браузер откроется сам на http://127.0.0.1:8080.
+Everything runs on your own computer: songs and analyses never leave it.
 
-Первый запуск дольше: в папку проекта (`.tools/`) ставятся uv, Python 3.11 и библиотеки, а
-интерфейс собирается. Для сборки интерфейса нужен [Node.js](https://nodejs.org) 20 или новее.
-Дальше запуск занимает пару секунд. Остановить приложение — закрыть окно или нажать Ctrl+C.
+> **Status:** an early personal project. The interface is in Russian only. The launcher is
+> Windows-first (`start.bat`); on Linux, use GitHub Codespaces or the Dockerfile. Automatic
+> transcription is a draft: chords and rhythm usually come out well, the melody depends on how
+> clearly the vocal can be heard.
 
-Модели для разбора скачиваются при первом разборе в `.models/`: Demucs, Beat This!, CREPE,
-Basic Pitch (около 130 МБ), MDX-Net для вокала (60 МБ), PANNs для тембра гитары (25 МБ),
-Whisper small для текста (около 460 МБ). Разбор в максимальном качестве на процессоре идёт
-примерно в 2–3 раза дольше самой песни. Банк гитарных звуков для
-плеера (MuseScore General, около 40 МБ) сервер скачивает сам при первом открытии студии. Пока
-его нет, звучит маленький встроенный банк. Скачать всё заранее:
+## How it works
+
+1. **Get the audio.** An uploaded file (mp3, wav, m4a, flac, mp4 video and more), or a YouTube,
+   TikTok or SoundCloud link downloaded with yt-dlp.
+2. **Split it into stems.** MDX-Net Inst HQ4 separates the vocal (BS-RoFormer on a GPU), then
+   Demucs splits the instrumental into guitar, bass, drums, keys and the rest.
+3. **Listen.** Beat This! finds beats and bars. Chords come from two chromagrams, CQT and
+   Basic Pitch note probabilities (which have almost no overtones), with chord changes more
+   likely on strong beats. CREPE gives the melody and bass notes. Whisper times every word of
+   the lyrics, and a ready-made text is looked up on lrclib.net. PANNs listens to the guitar
+   stem and the whole mix to guess the guitar tone and genre.
+4. **Arrange.** A pure-Python engine maps the parts onto the fretboard with dynamic
+   programming that keeps hand movement to a minimum (a stretch of at most 4 frets, 3 on
+   "easy"). It builds chord voicings for any tuning and capo, strums on the drums' accents and
+   writes fingerpicking, percussion and fingerstyle parts.
+5. **Play.** The studio renders the parts with alphaTab and plays them in time with the
+   original recording.
+
+## Features
+
+- **"As recorded" part:** the guitar notes from the original (Basic Pitch on the guitar stem)
+  are laid onto the chord shapes the guitarist holds, at the neck position where the recording
+  sounds. Strums are played as whole chords, picking follows the strings of the shape, and
+  riffs and solos are played note for note.
+- **Band setup:** 1–4 players with Solo / Duo / Trio / Quartet presets. Each player has their
+  own instrument (acoustic, electric or bass guitar), tuning, capo and difficulty (easy, medium
+  or full).
+- **Studio sound:** every part is rendered through its own signal chain. The electric guitar
+  has 11 tones (clean, funk, chorus, ambient, jazz, blues, crunch, drive, fuzz, lead and
+  metal), and the tone can be picked automatically to match the recording.
+- **Recording in sync with the tabs:** the player plays the song itself while the tab cursor
+  follows it, bar by bar. Any stem can be muted: drop the guitar to play over the track, or the
+  vocal to sing yourself.
+- **Stems:** each stem and the instrumental can be played on its own and downloaded as 24-bit
+  FLAC or MP3, or all at once as one archive.
+- **Lyrics:** a karaoke line under the tabs, a lyrics view with chords above the words, and
+  words right under the notes.
+- **Key and capo:** transpose ±12 semitones and get a hint for the best capo (fewer barre
+  chords). Changes are recalculated in under a second, without re-running the analysis.
+- **Practice tools:** A–B loop, metronome, count-in, tempo 50–120 %, and a mixer with mute,
+  solo and volume.
+- **Export:** PDF (print), Guitar Pro (.gp), MIDI and alphaTex.
+
+![Home page: upload a file or paste a link](docs/screens/home.png)
+
+## Getting started
+
+### Windows
+
+Double-click **`start.bat`**. The browser opens by itself at http://127.0.0.1:8080.
+
+The first start takes longer: uv, Python 3.11 and the libraries are installed into the
+project's `.tools/` folder, and the interface is built. Building the interface needs
+[Node.js](https://nodejs.org) 20 or newer. After that the app starts in a couple of seconds.
+
+The analysis models are downloaded into `.models/` on the first analysis: Demucs, Beat This!,
+CREPE and Basic Pitch (about 130 MB), MDX-Net for the vocal (60 MB), PANNs for the guitar tone
+(25 MB) and Whisper small for the lyrics (about 460 MB). To download everything in advance:
 `.venv\Scripts\python scripts\fetch_models.py`.
 
-### Видеокарта NVIDIA
+On a CPU, the best-quality analysis takes about 2–3 times the length of the song. With an NVIDIA
+GPU it is roughly 5–10 times faster: run **`gpu.bat`** once to install PyTorch with CUDA (about
+2.5 GB). `gpu.bat off` switches back to the CPU build.
 
-По умолчанию разбор идёт на процессоре: песня длиной 4 минуты разбирается за несколько минут.
-С видеокартой — примерно в 5–10 раз быстрее. Чтобы включить, один раз запусти **`gpu.bat`**: он
-скачает PyTorch с CUDA, это около 2,5 ГБ. Вернуть сборку для процессора — `gpu.bat off`.
+To open the app from your bandmates' phones on the same Wi-Fi, start it with
+`start.bat --host 0.0.0.0` and go to `http://<computer-ip>:8080`.
 
-### Открыть с телефонов группы
+### GitHub Codespaces
 
-```bash
-start.bat --host 0.0.0.0
-```
+On the repository page, click **Code → Codespaces → Create codespace on main**. The first start
+takes 5–10 minutes while the libraries install, the interface builds and the models download.
+After that the app starts by itself every time the codespace starts. Open it from the
+**Ports → Fretlines** tab. See [.devcontainer/README.md](.devcontainer/README.md) for details.
 
-После этого заходи с телефона в той же Wi-Fi-сети на `http://<IP-компьютера>:8080`.
+The [Dockerfile](Dockerfile) works for any container host.
 
-### В облаке: GitHub Codespaces
+## Development
 
-Нужно, чтобы проверить приложение откуда угодно, без своего компьютера. На странице
-репозитория нажми **Code → Codespaces → Create codespace on main**. Первый старт занимает
-5–10 минут: ставятся библиотеки, собирается интерфейс, скачиваются модели. После этого
-приложение поднимается само при каждом запуске Codespace. Открыть его можно во вкладке
-**Ports → Fretlines**, ссылка открывается только под твоим аккаунтом GitHub. Подробнее —
-в [.devcontainer/README.md](.devcontainer/README.md).
-
-[Dockerfile](Dockerfile) подходит для любого хостинга контейнеров. Например, для Hugging Face
-Space: там нужна подписка PRO, а публикацию делает `scripts/deploy-hf.ps1`.
-
-## Что умеет
-
-- **Песня откуда угодно**: свой файл (mp3, wav, m4a, flac, видео mp4 и другие) или ссылка на
-  YouTube, TikTok, SoundCloud — звук скачивается через yt-dlp.
-- **Разбор**: Demucs делит трек на вокал, бас, барабаны, гитару, клавиши и остальное. Beat
-  This! находит доли и такты. Аккорды ищутся по двум хромаграммам: CQT и вероятностям нот
-  Basic Pitch (в ней почти нет обертонов), смена аккорда вероятнее на сильной доле. CREPE
-  даёт ноты мелодии и баса, повторы одной высоты режутся по атакам. Прогресс видно по этапам,
-  вкладку можно закрыть.
-- **Студийный звук партий**: каждая партия рендерится отдельно и проходит свой тракт. Электро
-  идёт через педаль, ламповый перегруз, кабинет 4×12, эффекты и комнату. У электро 11 тембров:
-  чистый, фанк (с компрессором), хорус, эмбиент (дилей в темп песни и большой ревер), джаз,
-  блюз, кранч, перегруз, фузз, соло и метал. Для каждого есть подсказка, какой пресет включить
-  на смарт-гитаре (у Enya Inspire на корпусе Clean, Crunch, Overdrive, Lead). Акустика идёт
-  через корпус и комнату. Ритм с перегрузом дублируется на два канала, как в студии, аккорды
-  с перегрузом берутся пауэр-аккордами, у боя есть акценты.
-- **Тембр «как в записи»**: нейросеть PANNs слушает гитарную дорожку (перегруз, ревер, эхо,
-  хорус) и всю песню (жанр). По ним подбирается тембр: фанк — чистый с компрессором,
-  психоделика — фузз, метал — хай-гейн, эмбиент — дилей и ревер, одиночные ноты с
-  перегрузом — соло.
-- **Инструментал и дорожки**: вокал отделяет MDX-Net Inst HQ4 (на видеокарте — BS-RoFormer),
-  потом Demucs раскладывает инструментал на гитару, бас, барабаны, клавиши и остальное. Каждую
-  дорожку и инструментал можно послушать отдельно и скачать во FLAC 24 бит или MP3, всё сразу —
-  одним архивом.
-- **Звук записи в такт табам**: плеер играет саму песню, а курсор табов идёт за ней. Темп
-  в табах повторяет запись такт за тактом. Режимы «Запись» (оригинал), «Вместе» (запись без
-  того, что играет группа, плюс ваши партии) и «Партии» (только синтезатор). В микшере любую
-  дорожку записи можно заглушить: без гитары — играть поверх, без вокала — петь самому.
-- **Партия «как в записи»**: ноты гитары из оригинала (Basic Pitch по гитарной дорожке)
-  раскладываются по аппликатурам аккордов, как их держит гитарист. Аппликатура берётся в той
-  позиции грифа, где звучит запись. Бой играется целым аккордом: вниз — по всем струнам,
-  вверх — по тонким, даже если модель расслышала только верхнюю струну. Перебор идёт по
-  струнам аппликатуры. Ноты мимо аккорда (обертоны, соседние инструменты) отбрасываются.
-  Рифы и соло, где много нот мимо аккорда, идут нота в ноту. Сложность упрощает и её.
-- **Текст песни**: готовый текст ищется на lrclib.net, Whisper слушает вокальную дорожку
-  и даёт тайминг каждого слова. Есть караоке-строка под табами, режим «Текст» с аккордами над
-  словами и слова прямо под нотами.
-- **Партии**: раскладка по грифу через динамическое программирование с минимумом
-  перемещений руки (растяжка ≤ 4 лада, на «легко» ≤ 3), аккордовые аппликатуры для любого
-  строя и каподастра, бой по акцентам барабанов, перебор, перкуссия, фингерстайл для одного
-  игрока, «бас-аккорд» для дуэта.
-- **Состав**: 1–4 игрока, пресеты «Соло / Дуэт / Трио / Квартет», роли перетаскиваются между
-  игроками. У каждого свой инструмент (акустика, электро, бас-гитара), строй, каподастр и
-  сложность (легко / средне / полностью).
-- **Тональность и каподастр**: транспонирование ±12 и подсказка лучшего каподастра (меньше
-  баррэ). Пересчёт занимает меньше секунды, анализ при этом не повторяется.
-- **Студия**: табы alphaTab с курсором, режимы «Моя партия / Партитура / Аккорды». Плеер
-  играет все партии гитарным звуком, есть петля A–B, метроном, отсчёт, темп 50–120 %, микшер
-  mute/solo/громкость.
-- **Горячие клавиши**: пробел — играть/пауза, ←/→ — такт назад/вперёд, L — петля, M —
-  заглушить свою партию.
-- **Экспорт**: PDF (печать), Guitar Pro (.gp), MIDI, alphaTex.
-- **Библиотека**: разборы с генеративными обложками. Состав и настройки сохраняются у
-  каждой песни.
-
-Автоматический разбор — это черновик. Аккорды и ритм обычно получаются хорошо, мелодия
-зависит от того, насколько чисто слышен вокал.
-
-## Разработка
-
-Всё ставится в папку проекта. uv лежит в `.tools/uv/uv.exe`. В PowerShell удобно один раз
-выставить переменные из `scripts/common.ps1`: `. .\scripts\common.ps1`.
+All tools are installed inside the project; uv lives in `.tools/uv/uv.exe`. In PowerShell,
+load the environment variables once with `. .\scripts\common.ps1`.
 
 ```bash
-.tools/uv/uv.exe sync                       # окружение с dev-инструментами
-.tools/uv/uv.exe run pytest                 # быстрые тесты: arranger, backend, worker
-.tools/uv/uv.exe run pytest -m slow         # полный разбор синтетической песни моделями
+.tools/uv/uv.exe sync                       # environment with dev tools
+.tools/uv/uv.exe run pytest                 # fast tests: arranger, backend, worker
+.tools/uv/uv.exe run pytest -m slow         # full analysis of a synthetic song with the models
 .tools/uv/uv.exe run ruff check .
 .tools/uv/uv.exe run mypy                   # strict
 .tools/uv/uv.exe run python -m fretlines_api --no-browser
 ```
 
-Интерфейс в режиме разработки откроется на http://localhost:5173, запросы к `/api`
-проксируются на :8080:
+The interface dev server runs at http://localhost:5173 and proxies `/api` to :8080:
 
 ```bash
 cd frontend
@@ -131,51 +115,46 @@ npm run dev
 npm run lint && npm run typecheck && npm run build
 ```
 
-### Устройство
-
 ```text
 fretlines/
-├── start.bat, gpu.bat   запуск и включение видеокарты
-├── backend/             FastAPI: API, очередь разборов (каждый — в своём процессе), раздача интерфейса
-├── worker/              разбор: yt-dlp, ffmpeg, Demucs, Beat This!, аккорды, CREPE
-├── arranger/            движок аранжировки на чистом Python: гриф, аппликатуры, партии, alphaTex
+├── start.bat, gpu.bat   launch and GPU switch
+├── backend/             FastAPI: API, analysis queue (one process per song), serves the interface
+├── worker/              analysis: yt-dlp, ffmpeg, stem separation, beats, chords, notes, lyrics
+├── arranger/            pure-Python arranging engine: fretboard, voicings, parts, alphaTex
 ├── frontend/            React + TypeScript + Vite + Tailwind + alphaTab
-├── storage/             песни, стемы, разборы и база SQLite (в git не попадают)
-├── .tools/              uv, Python, кэш библиотек (ставится сам)
-└── .models/             веса моделей (качаются сами)
+├── storage/             songs, stems, analyses and the SQLite database (not in git)
+├── .tools/              uv, Python and the library cache (installed automatically)
+└── .models/             model weights (downloaded automatically)
 ```
 
-### Настройки
+Settings live in a `.env` file or environment variables; see [.env.example](.env.example).
 
-Настройки задаются в файле `.env` или переменными окружения (пример — в
-[.env.example](.env.example)):
-
-| Переменная | По умолчанию | Что делает |
+| Variable | Default | What it does |
 |---|---|---|
-| `FRETLINES_HOST` | `127.0.0.1` | `0.0.0.0` открывает приложение для локальной сети |
-| `FRETLINES_PORT` | `8080` | порт; если занят, берётся следующий свободный |
-| `FRETLINES_DEVICE` | `auto` | `cpu` — всегда процессор, `cuda` — видеокарта |
-| `FRETLINES_STORAGE_DIR` | `storage` | где хранить песни и разборы |
-| `FRETLINES_MAX_UPLOAD_MB` | `50` | лимит аудиофайла (для видео — 200 МБ) |
-| `FRETLINES_SEPARATION` | `max` | `standard` — разделение одним Demucs, примерно вдвое быстрее |
-| `FRETLINES_LYRICS` | `online` | `local` — текст только распознаванием, без сети; `off` — без текста |
-| `FRETLINES_LYRICS_MODEL` | `small` | модель Whisper: `medium`, `large-v3` — точнее, но медленнее |
+| `FRETLINES_HOST` | `127.0.0.1` | `0.0.0.0` opens the app to the local network |
+| `FRETLINES_PORT` | `8080` | port; if it is taken, the next free one is used |
+| `FRETLINES_DEVICE` | `auto` | `cpu` always uses the CPU, `cuda` the GPU |
+| `FRETLINES_STORAGE_DIR` | `storage` | where songs and analyses are stored |
+| `FRETLINES_MAX_UPLOAD_MB` | `50` | audio upload limit (200 MB for video) |
+| `FRETLINES_SEPARATION` | `max` | `standard` separates with Demucs alone, about twice as fast |
+| `FRETLINES_LYRICS` | `online` | `local` recognises lyrics only, without the network; `off` disables lyrics |
+| `FRETLINES_LYRICS_MODEL` | `small` | Whisper model: `medium` or `large-v3` are more accurate but slower |
 
-## Лицензия
+## Privacy and rights
 
-Код Fretlines открыт под лицензией [MIT](LICENSE): его можно свободно использовать, менять и
-распространять, сохранив упоминание автора. Сторонние модели и банк звуков идут под своими
-лицензиями — см. ниже.
+Analyses are stored only on your computer; there is no public catalogue. Audio is never sent
+anywhere. To look up lyrics on lrclib.net, only the title, artist and duration are sent; turn
+this off with `FRETLINES_LYRICS=local`. Downloading by link is meant for personal practice:
+don't publish other people's music, and respect the rights of the authors and the rules of the
+platforms.
 
-## Приватность и права
+## License
 
-Разборы хранятся только на этом компьютере, публичного каталога нет. Звук никуда не
-отправляется. Для поиска текста на lrclib.net уходят только название, исполнитель и
-длительность. Это отключается: `FRETLINES_LYRICS=local`. Скачивание по ссылке нужно для
-личной практики: не выкладывай чужую музыку и уважай права авторов и правила площадок.
+Fretlines is released under the [MIT License](LICENSE).
 
-Банк звуков MuseScore General — лицензия MIT (S. Christian Collins, на основе FluidR3Mono
-и FluidR3 © Frank Wen). Basic Pitch — Apache-2.0 (Spotify). Whisper — MIT (OpenAI),
-faster-whisper — MIT. audio-separator — MIT, модели MDX-Net и RoFormer — из проекта Ultimate
-Vocal Remover (Anjok07, aufr33, ViperX). PANNs — код MIT, веса CC BY 4.0 (Kong et al., 2020).
-Тексты песен принадлежат их авторам.
+Third-party components keep their own licenses. The MuseScore General sound bank is MIT
+(S. Christian Collins, based on FluidR3Mono and FluidR3 © Frank Wen). Basic Pitch is
+Apache-2.0 (Spotify). Whisper is MIT (OpenAI), and so is faster-whisper. audio-separator is MIT;
+the MDX-Net and RoFormer models come from the Ultimate Vocal Remover project (Anjok07, aufr33,
+ViperX). PANNs code is MIT and its weights are CC BY 4.0 (Kong et al., 2020). Song lyrics
+belong to their authors.
