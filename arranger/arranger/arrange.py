@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
+from arranger.edits import ChordEdit, ChordRename, apply_fixes
 from arranger.instruments import DISTORTED, InstrumentKind, make_instrument, resolve_tone
 from arranger.model import (
     STEPS_PER_BEAT,
@@ -94,6 +95,9 @@ def preset_players(preset: str) -> tuple[PlayerSetup, ...]:
 class ChartChord:
     offset: int  # шаг от начала такта
     name: str
+    start: float = 0.0  # участок аккорда в долях от начала песни — для ручной правки
+    end: float = 0.0
+    source: str = ""  # имя в тональности записи (без транспонирования)
 
 
 @dataclass(frozen=True)
@@ -213,7 +217,15 @@ def chord_chart(ctx: Context) -> tuple[tuple[ChartChord, ...], ...]:
     for item in ctx.timeline("medium"):
         bar = item.start // ctx.bar_steps
         if bar < len(bars):
-            bars[bar].append(ChartChord(item.start % ctx.bar_steps, item.chord.name(flats=flats)))
+            bars[bar].append(
+                ChartChord(
+                    item.start % ctx.bar_steps,
+                    item.chord.name(flats=flats),
+                    item.start / STEPS_PER_BEAT,
+                    item.end / STEPS_PER_BEAT,
+                    item.chord.transposed(-ctx.transpose).name(flats=ctx.tx.key.flats),
+                )
+            )
     return tuple(tuple(b) for b in bars)
 
 
@@ -222,8 +234,15 @@ def arrange(
     players: Sequence[PlayerSetup],
     transpose: int = 0,
     smooth: bool = True,
+    chord_fixes: Sequence[ChordEdit | ChordRename] = (),
 ) -> Arrangement:
-    """smooth — подбирать аппликатуры под удобные смены аккордов (иначе — самые привычные)."""
+    """smooth — подбирать аппликатуры под удобные смены аккордов (иначе — самые привычные).
+
+    chord_fixes — ручные правки аккордов разбора (в тональности записи), по порядку.
+    """
+    if chord_fixes:
+        fixed = apply_fixes(tx.chords, chord_fixes, tx.bars * tx.beats_per_bar)
+        tx = replace(tx, chords=fixed)
     transpose = max(-12, min(12, transpose))
     ctx = Context(tx, transpose, smooth)
     parts = tuple(build_part(ctx, p) for p in players)
@@ -285,7 +304,19 @@ def arrangement_to_dict(arr: Arrangement) -> dict[str, Any]:
             }
             for p in arr.parts
         ],
-        "chart": [[{"offset": c.offset, "name": c.name} for c in bar] for bar in arr.chart],
+        "chart": [
+            [
+                {
+                    "offset": c.offset,
+                    "name": c.name,
+                    "start": round(c.start, 4),
+                    "end": round(c.end, 4),
+                    "source": c.source,
+                }
+                for c in bar
+            ]
+            for bar in arr.chart
+        ],
         "bar_seconds": [round(t, 4) for t in arr.bar_seconds],
         "capo_hints": {
             pid: [{"capo": o.capo, "score": o.score, "barre_chords": o.barre_chords} for o in opts]

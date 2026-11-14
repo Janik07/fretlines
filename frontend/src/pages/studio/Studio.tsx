@@ -9,6 +9,8 @@ import {
   api,
   type Analysis,
   type Arrangement,
+  type ChartChord,
+  type ChordFix,
   type Lyrics,
   type Song,
   type SoundSource,
@@ -131,7 +133,7 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
     };
     // Звук и заглушённые дорожки на партии не влияют — пересчёт только по составу.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [song.id, setup?.players, setup?.transpose, setup?.lyricsInTabs, setup?.smooth]);
+  }, [song.id, setup?.players, setup?.transpose, setup?.lyricsInTabs, setup?.smooth, setup?.chordFixes]);
 
   // Состав и правки сохраняются в разборе — откроешь завтра, всё на месте.
   useEffect(() => {
@@ -283,6 +285,17 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
       return { ...current, players };
     });
   };
+  /** Музыкант поправил аккорд разбора: здесь (на его участке) или по всей песне. */
+  const fixChord = (chord: ChartChord, name: string | null, everywhere: boolean) => {
+    setSetup((current) => {
+      if (!current) return current;
+      const fix: ChordFix =
+        everywhere && chord.source
+          ? { old: chord.source, chord: name, transpose: current.transpose }
+          : { start: chord.start, end: chord.end, chord: name, transpose: current.transpose };
+      return { ...current, chordFixes: [...(current.chordFixes ?? []), fix] };
+    });
+  };
   const modes: { value: Mode; label: string }[] = [
     { value: "mine", label: narrow ? "Моя" : "Моя партия" },
     { value: "score", label: narrow ? "Все" : "Партитура" },
@@ -403,6 +416,11 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
                   part={minePart}
                   pinned={setup?.players.find((p) => p.id === minePart?.player_id)?.voicings}
                   onPick={pickShape}
+                  fixes={setup?.chordFixes?.length ?? 0}
+                  onFix={fixChord}
+                  onResetFixes={() => {
+                    update({ chordFixes: [] });
+                  }}
                 />
               </motion.div>
             )}

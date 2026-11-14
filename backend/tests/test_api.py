@@ -120,3 +120,26 @@ def test_frontend_placeholder_when_not_built(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "start.bat" in response.text
+
+
+def test_arrangement_accepts_manual_chord_fixes(client: TestClient, ready_song: str) -> None:
+    players = [{"id": "a", "name": "", "roles": ["rhythm"]}]
+    url = f"/api/songs/{ready_song}/arrangement"
+    plain = client.post(url, json={"players": players, "transpose": 2}).json()
+    first = plain["chart"][0][0]
+    body = {
+        "players": players,
+        "transpose": 2,
+        # Имя набрано в транспонированной тональности — сервер вернёт его в тональность записи.
+        "chord_fixes": [
+            {"old": "G", "chord": None},
+            {"start": first["start"], "end": first["end"], "chord": "F#m", "transpose": 2},
+        ],
+    }
+    fixed = client.post(url, json=body).json()
+    assert fixed["chart"][0][0]["name"] == "F#m"
+    assert fixed["chart"][0][0]["source"] == "Em"
+    bad = client.post(
+        url, json={"players": players, "chord_fixes": [{"start": 0, "end": 4, "chord": "???"}]}
+    )
+    assert bad.status_code == 422

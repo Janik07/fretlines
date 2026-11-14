@@ -52,6 +52,30 @@ export interface StudioSetup {
   lyricsInTabs?: boolean;
   /** Подбирать аппликатуры под удобные смены аккордов (по умолчанию — да). */
   smooth?: boolean;
+  /** Ручные правки аккордов разбора — по порядку, как их вносили. */
+  chordFixes?: ChordFix[];
+}
+
+/** Правка аккорда: на участке [start, end) в долях или, если задан old, по всей песне. */
+export interface ChordFix {
+  start?: number;
+  end?: number;
+  /** Какой аккорд заменить везде — имя в тональности записи. */
+  old?: string;
+  /** Новое имя; null — убрать аккорд. */
+  chord: string | null;
+  /** При каком транспонировании набрано имя. */
+  transpose: number;
+}
+
+export interface ChartChord {
+  offset: number;
+  name: string;
+  /** Участок аккорда в долях от начала песни. */
+  start?: number;
+  end?: number;
+  /** Имя в тональности записи (без транспонирования). */
+  source?: string;
 }
 
 export interface Meta {
@@ -146,7 +170,7 @@ export interface Arrangement {
   key: string;
   transpose: number;
   parts: PartInfo[];
-  chart: { offset: number; name: string }[][];
+  chart: ChartChord[][];
   capo_hints: Record<string, { capo: number; score: number; barre_chords: number }[]>;
   /** Начала тактов в секундах записи и конец последнего. Пусто — старый разбор. */
   bar_seconds: number[];
@@ -218,6 +242,7 @@ export const api = {
         transpose: setup.transpose,
         lyrics_in_tabs: setup.lyricsInTabs ?? true,
         smooth: setup.smooth ?? true,
+        chord_fixes: setup.chordFixes ?? [],
       }),
     ),
   lyrics: (id: string) => request<Lyrics>(`/songs/${id}/lyrics`),

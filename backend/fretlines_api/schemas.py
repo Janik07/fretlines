@@ -107,11 +107,22 @@ class PlayerIn(BaseModel):
     voicings: dict[str, list[Fret | None]] = Field(default_factory=dict, max_length=60)
 
 
+class ChordFixIn(BaseModel):
+    """Ручная правка аккорда: на участке [start, end) или, если задан old, по всей песне."""
+
+    start: float = Field(default=0, ge=0)
+    end: float = Field(default=0, ge=0)
+    old: str | None = Field(default=None, max_length=16)  # имя в тональности записи
+    chord: str | None = Field(default=None, max_length=16)  # None — убрать аккорд
+    transpose: int = Field(default=0, ge=-12, le=12)  # в какой тональности набран chord
+
+
 class ArrangementIn(BaseModel):
     players: list[PlayerIn] = Field(min_length=1, max_length=4)
     transpose: int = Field(default=0, ge=-12, le=12)
     lyrics_in_tabs: bool = True  # подписывать слова песни под долями партий
     smooth: bool = True  # аппликатуры под удобные смены аккордов
+    chord_fixes: list[ChordFixIn] = Field(default_factory=list, max_length=500)
 
 
 class WordIn(BaseModel):

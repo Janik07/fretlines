@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import Engine, select
 
 from arranger import PlayerSetup, Transcription, arrange, arrangement_to_dict, to_alphatex
+from arranger.edits import ChordEdit, ChordRename, untransposed
 from arranger.model import STEPS_PER_BEAT
 from fretlines_api.db import Song, session_scope
 from fretlines_api.deps import get_engine, get_runner, get_settings
@@ -348,7 +349,16 @@ def song_arrangement(
         for p in body.players
     ]
     try:
-        result = arrange(tx, players, transpose=body.transpose, smooth=body.smooth)
+        fixes: list[ChordEdit | ChordRename] = []
+        for fix in body.chord_fixes:
+            name = fix.chord and untransposed(fix.chord, fix.transpose)
+            if fix.old is None:
+                fixes.append(ChordEdit(fix.start, fix.end, name))
+            else:
+                fixes.append(ChordRename(fix.old, name))
+        result = arrange(
+            tx, players, transpose=body.transpose, smooth=body.smooth, chord_fixes=fixes
+        )
     except ValueError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     data = arrangement_to_dict(result)

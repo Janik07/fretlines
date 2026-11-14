@@ -5,6 +5,7 @@ import pytest
 
 from arranger import PRESETS, arrange, arrangement_to_dict, preset_players, to_alphatex
 from arranger.arrange import PlayerSetup
+from arranger.edits import ChordEdit, ChordRename, untransposed
 from arranger.instruments import make_instrument
 from arranger.model import STEPS_PER_BEAT, Difficulty, Part, Transcription
 from arranger.parts import playability_issues
@@ -139,7 +140,8 @@ def test_serialization_for_the_ui(song: Transcription) -> None:
     data = arrangement_to_dict(arrange(song, preset_players("duo")))
     assert data["key"] == "C"
     assert len(data["parts"]) == 2
-    assert data["chart"][0][0] == {"offset": 0, "name": "C"}
+    first = data["chart"][0][0]
+    assert first == {"offset": 0, "name": "C", "start": 0.0, "end": 8.0, "source": "C"}
     assert data["capo_hints"]
 
 
@@ -172,3 +174,33 @@ def test_smooth_flag_reaches_the_result(song: Transcription) -> None:
     player = PlayerSetup("r", "", roles=("rhythm",))
     assert arrangement_to_dict(arrange(song, [player]))["smooth"] is True
     assert arrangement_to_dict(arrange(song, [player], smooth=False))["smooth"] is False
+
+
+def test_chord_edits_and_renames_change_the_chart(song: Transcription) -> None:
+    player = PlayerSetup("r", "", roles=("rhythm",))
+    plain = arrangement_to_dict(arrange(song, [player]))
+    first = plain["chart"][0][0]
+    assert (first["name"], first["source"], first["start"]) == ("C", "C", 0.0)
+    edited = arrangement_to_dict(
+        arrange(
+            song,
+            [player],
+            chord_fixes=[
+                ChordEdit(first["start"], first["end"], "Em"),
+                ChordRename("G", "G7"),
+                ChordRename("Em", "E"),  # видит результат первой правки
+            ],
+        )
+    )
+    names = [c["name"] for bar in edited["chart"] for c in bar]
+    assert names[0] == "E"
+    assert "G7" in names
+    assert "G" not in names
+    assert "E" in {s["name"] for s in edited["parts"][0]["shapes"]}
+
+
+def test_chart_keeps_the_recording_key_as_source(song: Transcription) -> None:
+    player = PlayerSetup("r", "", roles=("rhythm",))
+    chart = arrangement_to_dict(arrange(song, [player], transpose=2))["chart"]
+    assert (chart[0][0]["name"], chart[0][0]["source"]) == ("D", "C")
+    assert untransposed("D", 2) == "C"
