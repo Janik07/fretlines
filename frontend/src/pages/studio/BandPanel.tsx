@@ -398,6 +398,20 @@ export function BandPanel({
           })}
         </AnimatePresence>
       </ul>
+      <label
+        className="flex items-center justify-between gap-3 text-small"
+        title="Аппликатуры подбираются вместе: чтобы рука меньше ездила по грифу и пальцы оставались на местах. Выключи — у каждого аккорда будет самая привычная форма."
+      >
+        Удобные смены аккордов
+        <input
+          type="checkbox"
+          checked={setup.smooth ?? true}
+          onChange={(e) => {
+            onChange({ ...setup, smooth: e.target.checked });
+          }}
+          className="accent-[var(--accent)]"
+        />
+      </label>
       {setup.players.length < 4 && (
         <button
           type="button"

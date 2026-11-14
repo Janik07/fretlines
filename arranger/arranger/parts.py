@@ -411,6 +411,8 @@ class Harmony:
         for name, chord, voicing in zip(self.names, self.chords, self.voicings, strict=True):
             if voicing is not None and name not in seen:
                 others = sorted(self.options.get(chord, ()), key=lambda v: v.cost)[:_SHAPE_OPTIONS]
+                if voicing not in others:  # выбранная форма всегда есть среди вариантов
+                    others = [voicing, *others[: _SHAPE_OPTIONS - 1]]
                 seen[name] = ChordShape(
                     name,
                     voicing.frets,
@@ -703,12 +705,12 @@ def recorded_harmony(
     for segment in sounding:
         count[h.chords[segment]] = count.get(h.chords[segment], 0) + 1
     options: dict[Chord, Sequence[Voicing]] = {}
+    shown: dict[Chord, Sequence[Voicing]] = {}  # на выбор — формы по всему грифу
     own: dict[Chord, list[float]] = {}
     for chord, notes in heard.items():
         fixed = pinned_voicing(chord, instrument, level, pinned.get(chord))
-        options[chord] = (
-            (fixed,) if fixed else neck_voicings(chord, instrument, level, MAX_FRET[level])
-        )
+        shown[chord] = neck_voicings(chord, instrument, level, MAX_FRET[level])
+        options[chord] = (fixed,) if fixed else shown[chord]
         trust = _REGISTER_W * min(1.0, sum(w for _, w in notes) / _EVIDENCE)
         own[chord] = [
             (v.cost + trust * (1 - _register_fit(v, notes, instrument))) * count[chord]
@@ -725,7 +727,7 @@ def recorded_harmony(
             changes[pair] = changes.get(pair, 0.0) + change_weight(shortest)
     chosen = assign_voicings(options, own, changes, level)
     voicings = [chosen.get(c, old) for c, old in zip(h.chords, h.voicings, strict=True)]
-    return Harmony(h.timeline, voicings, h.names, h.chords, {**h.options, **options})
+    return Harmony(h.timeline, voicings, h.names, h.chords, {**h.options, **shown})
 
 
 def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h: Harmony) -> str:

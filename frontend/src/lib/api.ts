@@ -35,6 +35,8 @@ export interface Player {
   difficulty: Difficulty;
   /** Звук гитары: «auto» — как в записи (см. Meta.tones). */
   tone?: string;
+  /** Аппликатуры, выбранные вручную: имя аккорда на диаграмме → лады (первая струна — тонкая). */
+  voicings?: Record<string, (number | null)[]>;
 }
 
 /** Что звучит в плеере: партии синтезатором, запись или запись без партий группы + партии. */
@@ -48,6 +50,8 @@ export interface StudioSetup {
   /** Дорожки записи, которые заглушены (в режиме «Вместе» — сверх тех, что играет группа). */
   muted?: StemName[];
   lyricsInTabs?: boolean;
+  /** Подбирать аппликатуры под удобные смены аккордов (по умолчанию — да). */
+  smooth?: boolean;
 }
 
 export interface Meta {
@@ -109,6 +113,11 @@ export interface Lyrics {
 export interface ChordShape {
   name: string;
   frets: (number | null)[];
+  /** Палец на каждой струне: 1–4, 0 — открытая. */
+  fingers?: (number | null)[];
+  barre?: number | null;
+  /** Другие аппликатуры этого аккорда — на выбор (вместе с текущей). */
+  options?: ChordShape[];
 }
 
 export interface PartInfo {
@@ -208,6 +217,7 @@ export const api = {
         players: setup.players,
         transpose: setup.transpose,
         lyrics_in_tabs: setup.lyricsInTabs ?? true,
+        smooth: setup.smooth ?? true,
       }),
     ),
   lyrics: (id: string) => request<Lyrics>(`/songs/${id}/lyrics`),

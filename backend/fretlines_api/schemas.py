@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -91,6 +91,9 @@ class SongPatch(BaseModel):
     setup: dict[str, Any] | None = None
 
 
+Fret = Annotated[int, Field(ge=0, le=30)]
+
+
 class PlayerIn(BaseModel):
     id: str = Field(min_length=1, max_length=32)
     name: str = Field(default="", max_length=40)
@@ -100,12 +103,15 @@ class PlayerIn(BaseModel):
     roles: list[RoleName] = Field(min_length=1, max_length=5)
     difficulty: Level = "medium"
     tone: ToneName = "auto"
+    # Аппликатуры, выбранные вручную: имя аккорда → лады по струнам (первая — тонкая).
+    voicings: dict[str, list[Fret | None]] = Field(default_factory=dict, max_length=60)
 
 
 class ArrangementIn(BaseModel):
     players: list[PlayerIn] = Field(min_length=1, max_length=4)
     transpose: int = Field(default=0, ge=-12, le=12)
     lyrics_in_tabs: bool = True  # подписывать слова песни под долями партий
+    smooth: bool = True  # аппликатуры под удобные смены аккордов
 
 
 class WordIn(BaseModel):

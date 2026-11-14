@@ -32,7 +32,7 @@ from arranger.parts import (
     rhythm_part,
 )
 from arranger.theory import Key
-from arranger.voicings import SPAN, CapoOption, suggest_capo
+from arranger.voicings import SPAN, CapoOption, Frets, suggest_capo
 
 # Если ролей у игрока больше, чем он может сыграть разом, остаётся главная по этому порядку.
 PRIORITY: tuple[Role, ...] = ("original", "melody", "rhythm", "bass", "pad", "percussion")
@@ -57,6 +57,8 @@ class PlayerSetup:
     roles: tuple[Role, ...] = ("rhythm",)
     difficulty: Difficulty = "medium"
     tone: str = "auto"  # звук гитары: instruments.TONES или «auto» — как в записи
+    # Аппликатуры, выбранные вручную: имя аккорда на диаграмме → лады по струнам.
+    voicings: tuple[tuple[str, Frets], ...] = ()
 
 
 PRESETS: dict[str, tuple[tuple[str, tuple[Role, ...]], ...]] = {
@@ -105,6 +107,7 @@ class Arrangement:
     chart: tuple[tuple[ChartChord, ...], ...]  # аккорды по тактам — для режима «Аккорды»
     capo_hints: dict[str, tuple[CapoOption, ...]] = field(default_factory=dict)
     bar_seconds: tuple[float, ...] = ()  # начала тактов в записи (+ конец последнего)
+    smooth: bool = True  # аппликатуры подобраны под удобные смены аккордов
 
 
 def _title(player: PlayerSetup, roles: Sequence[Role]) -> str:
@@ -117,6 +120,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
     level = player.difficulty
     tone = resolve_tone(instrument.kind, player.tone, ctx.tx.guitar_tone, ctx.tx.guitar_sound)
     power = tone in DISTORTED
+    pins = dict(player.voicings)
     wanted = [r for r in PRIORITY if r in player.roles] or ["rhythm"]
     warnings: list[str] = []
     if instrument.kind == "bass" and any(r not in ("bass", "melody") for r in wanted):
@@ -127,7 +131,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
     beats: list[TabBeat]
     played: list[Role]
     h = (
-        harmony(ctx, instrument, level, power)
+        harmony(ctx, instrument, level, power, pins)
         if roles & {"rhythm", "pad", "original"} or len(roles) > 1
         else None
     )
@@ -142,7 +146,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
     elif "original" in roles and h is not None:
         # Партия из записи самодостаточна: остальные роли этого игрока она и так покрывает.
         # Аппликатуры в ней свои — в той позиции грифа, где играет запись.
-        beats, h = original_part(ctx, instrument, level, h)
+        beats, h = original_part(ctx, instrument, level, h, pins)
         played = ["original"]
         if ctx.tx.guitar_source == "keys":
             warnings.append("Гитары в записи почти не слышно — партия собрана по клавишным.")
@@ -163,7 +167,7 @@ def build_part(ctx: Context, player: PlayerSetup) -> Part:
         elif main == "percussion":
             beats = percussion_part(ctx, instrument, level)
         else:
-            h = h or harmony(ctx, instrument, level, power)
+            h = h or harmony(ctx, instrument, level, power, pins)
             beats = (rhythm_part if main == "rhythm" else pad_part)(ctx, instrument, level, h)
     # «Как в записи» либо сыграна, либо заменена ритмом (о чём уже предупредили).
     skipped = [ROLE_LABELS[r].lower() for r in wanted if r not in played and r != "original"]
@@ -213,9 +217,15 @@ def chord_chart(ctx: Context) -> tuple[tuple[ChartChord, ...], ...]:
     return tuple(tuple(b) for b in bars)
 
 
-def arrange(tx: Transcription, players: Sequence[PlayerSetup], transpose: int = 0) -> Arrangement:
+def arrange(
+    tx: Transcription,
+    players: Sequence[PlayerSetup],
+    transpose: int = 0,
+    smooth: bool = True,
+) -> Arrangement:
+    """smooth — подбирать аппликатуры под удобные смены аккордов (иначе — самые привычные)."""
     transpose = max(-12, min(12, transpose))
-    ctx = Context(tx, transpose)
+    ctx = Context(tx, transpose, smooth)
     parts = tuple(build_part(ctx, p) for p in players)
     hints: dict[str, tuple[CapoOption, ...]] = {}
     spans = tuple(ChordSpan(s.start, s.end, s.chord.transposed(transpose)) for s in tx.chords)
@@ -233,7 +243,17 @@ def arrange(tx: Transcription, players: Sequence[PlayerSetup], transpose: int = 
         chart=chord_chart(ctx),
         capo_hints=hints,
         bar_seconds=tx.bar_seconds,
+        smooth=smooth,
     )
+
+
+def _shape_dict(shape: ChordShape) -> dict[str, Any]:
+    return {
+        "name": shape.name,
+        "frets": list(shape.frets),
+        "fingers": list(shape.fingers),
+        "barre": shape.barre,
+    }
 
 
 def arrangement_to_dict(arr: Arrangement) -> dict[str, Any]:
@@ -245,6 +265,7 @@ def arrangement_to_dict(arr: Arrangement) -> dict[str, Any]:
         "bars": arr.bars,
         "key": arr.key.name,
         "transpose": arr.transpose,
+        "smooth": arr.smooth,
         "parts": [
             {
                 "player_id": p.player_id,
@@ -256,7 +277,10 @@ def arrangement_to_dict(arr: Arrangement) -> dict[str, Any]:
                 "capo": p.capo,
                 "tone": p.tone,
                 "notes": sum(len(b.notes) > 0 for b in p.beats),
-                "shapes": [{"name": s.name, "frets": list(s.frets)} for s in p.shapes],
+                "shapes": [
+                    {**_shape_dict(s), "options": [_shape_dict(o) for o in s.options]}
+                    for s in p.shapes
+                ],
                 "warnings": list(p.warnings),
             }
             for p in arr.parts

@@ -131,7 +131,7 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
     };
     // Звук и заглушённые дорожки на партии не влияют — пересчёт только по составу.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [song.id, setup?.players, setup?.transpose, setup?.lyricsInTabs]);
+  }, [song.id, setup?.players, setup?.transpose, setup?.lyricsInTabs, setup?.smooth]);
 
   // Состав и правки сохраняются в разборе — откроешь завтра, всё на месте.
   useEffect(() => {
@@ -270,6 +270,19 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
   const update = (next: Partial<StudioSetup>) => {
     setSetup((current) => (current ? { ...current, ...next } : current));
   };
+  /** Игрок берёт аккорд по-другому: запоминаем аппликатуру в его настройках. */
+  const pickShape = (name: string, frets: (number | null)[] | null) => {
+    const id = minePart?.player_id;
+    setSetup((current) => {
+      if (!current) return current;
+      const players = current.players.map((player) => {
+        if (player.id !== id) return player;
+        const kept = Object.entries(player.voicings ?? {}).filter(([chord]) => chord !== name);
+        return { ...player, voicings: Object.fromEntries(frets ? [...kept, [name, frets]] : kept) };
+      });
+      return { ...current, players };
+    });
+  };
   const modes: { value: Mode; label: string }[] = [
     { value: "mine", label: narrow ? "Моя" : "Моя партия" },
     { value: "score", label: narrow ? "Все" : "Партитура" },
@@ -385,7 +398,12 @@ export function Studio({ song, route, onRefresh }: { song: Song; route: Route; o
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, ease: EASE_FILM }}
               >
-                <ChordsView arrangement={arrangement} part={minePart} />
+                <ChordsView
+                  arrangement={arrangement}
+                  part={minePart}
+                  pinned={setup?.players.find((p) => p.id === minePart?.player_id)?.voicings}
+                  onPick={pickShape}
+                />
               </motion.div>
             )}
             {mode === "text" && arrangement && lyrics && (

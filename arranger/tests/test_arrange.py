@@ -145,3 +145,30 @@ def test_serialization_for_the_ui(song: Transcription) -> None:
 
 def test_transcription_round_trip(song: Transcription) -> None:
     assert Transcription.from_dict(song.to_dict()) == song
+
+
+def test_shapes_carry_fingers_and_other_options(song: Transcription) -> None:
+    player = PlayerSetup("r", "", roles=("rhythm",), difficulty="medium")
+    shapes = arrangement_to_dict(arrange(song, [player]))["parts"][0]["shapes"]
+    f = next(s for s in shapes if s["name"] == "F")
+    assert f["frets"] == [1, 1, 2, 3, 3, 1]  # от тонкой струны: баррэ 133211
+    assert f["fingers"] == [1, 1, 2, 4, 3, 1]
+    assert f["barre"] == 1
+    assert [1, 1, 2, 3, None, None] in [o["frets"] for o in f["options"]]  # малое F — на выбор
+
+
+def test_player_can_pin_a_shape(song: Transcription) -> None:
+    small_f = (1, 1, 2, 3, None, None)
+    player = PlayerSetup(
+        "r", "", roles=("rhythm",), difficulty="medium", voicings=(("F", small_f),)
+    )
+    part = arrange(song, [player]).parts[0]
+    assert next(s for s in part.shapes if s.name == "F").frets == small_f
+    first = next(b for b in part.beats if b.chord == "F")
+    assert [n.fret for n in first.notes] == [1, 1, 2, 3]  # и в табах — выбранная форма
+
+
+def test_smooth_flag_reaches_the_result(song: Transcription) -> None:
+    player = PlayerSetup("r", "", roles=("rhythm",))
+    assert arrangement_to_dict(arrange(song, [player]))["smooth"] is True
+    assert arrangement_to_dict(arrange(song, [player], smooth=False))["smooth"] is False

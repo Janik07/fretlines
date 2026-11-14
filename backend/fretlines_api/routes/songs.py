@@ -343,11 +343,12 @@ def song_arrangement(
             roles=tuple(p.roles),
             difficulty=p.difficulty,
             tone=p.tone,
+            voicings=tuple((name, tuple(frets)) for name, frets in p.voicings.items()),
         )
         for p in body.players
     ]
     try:
-        result = arrange(tx, players, transpose=body.transpose)
+        result = arrange(tx, players, transpose=body.transpose, smooth=body.smooth)
     except ValueError as error:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     data = arrangement_to_dict(result)
