@@ -31,3 +31,6 @@ Thumbs.db
 # Шрифт нот и SoundFont копирует плагин alphaTab при сборке
 frontend/public/font/
 frontend/public/soundfont/
+
+# Эталонные наборы для замеров (GuitarSet и т. п.) — большие, качаются скриптом
+.bench/

@@ -153,6 +153,9 @@ class ChordShape:
 
     name: str
     frets: tuple[int | None, ...]
+    fingers: tuple[int | None, ...] = ()  # палец на каждой струне: 1–4, 0 — открытая
+    barre: int | None = None  # лад баррэ
+    options: tuple[ChordShape, ...] = ()  # другие аппликатуры этого аккорда — на выбор
 
 
 @dataclass(frozen=True)

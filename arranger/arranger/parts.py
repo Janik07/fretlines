@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import bisect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from itertools import pairwise
@@ -28,7 +28,17 @@ from arranger.model import (
     Transcription,
 )
 from arranger.theory import Chord, Key
-from arranger.voicings import SPAN, Voicing, best_path, choose_voicings, neck_voicings
+from arranger.voicings import (
+    SPAN,
+    Frets,
+    Voicing,
+    assign_voicings,
+    change_weight,
+    choose_voicings,
+    neck_voicings,
+    pinned_voicing,
+    playable_voicings,
+)
 
 GRID: dict[Difficulty, int] = {"easy": 2, "medium": 2, "full": 1}
 MAX_FRET: dict[Difficulty, int] = {"easy": 7, "medium": 12, "full": 99}
@@ -59,6 +69,7 @@ class Context:
 
     tx: Transcription
     transpose: int = 0
+    smooth: bool = True  # подбирать аппликатуры так, чтобы между аккордами было удобно переходить
 
     @property
     def bar_steps(self) -> int:
@@ -71,6 +82,10 @@ class Context:
     @property
     def key(self) -> Key:
         return self.tx.key.transposed(self.transpose)
+
+    def seconds(self, steps: int) -> float:
+        """Сколько длятся столько шагов сетки в темпе песни."""
+        return steps * 60 / max(self.tx.tempo, 1.0) / STEPS_PER_BEAT
 
     def timeline(self, level: Difficulty) -> list[StepChord]:
         """Аккорды, привязанные к сетке уровня; одинаковые соседние склеены."""
@@ -389,24 +404,55 @@ class Harmony:
     voicings: list[Voicing | None]
     names: list[str]
     chords: list[Chord]  # что взято на грифе: с перегрузом — пауэр-аккорды вместо полных
+    options: Mapping[Chord, Sequence[Voicing]]  # из чего выбирали — другие аппликатуры на выбор
 
     def shapes(self) -> tuple[ChordShape, ...]:
         seen: dict[str, ChordShape] = {}
-        for name, voicing in zip(self.names, self.voicings, strict=True):
+        for name, chord, voicing in zip(self.names, self.chords, self.voicings, strict=True):
             if voicing is not None and name not in seen:
-                seen[name] = ChordShape(name, voicing.frets)
+                others = sorted(self.options.get(chord, ()), key=lambda v: v.cost)[:_SHAPE_OPTIONS]
+                seen[name] = ChordShape(
+                    name,
+                    voicing.frets,
+                    voicing.fingers,
+                    voicing.barre,
+                    tuple(ChordShape(name, v.frets, v.fingers, v.barre) for v in others),
+                )
         return tuple(seen.values())
+
+    def pinned(self, pins: Mapping[str, Frets]) -> dict[Chord, Frets]:
+        """Аппликатуры, выбранные вручную (по имени аккорда на диаграмме), — по аккордам."""
+        return {
+            chord: pins[name]
+            for chord, name in zip(self.chords, self.names, strict=True)
+            if name in pins
+        }
+
+
+_SHAPE_OPTIONS = 8  # столько аппликатур аккорда показываем на выбор
 
 
 def harmony(
-    ctx: Context, instrument: Instrument, level: Difficulty, power: bool = False
+    ctx: Context,
+    instrument: Instrument,
+    level: Difficulty,
+    power: bool = False,
+    pins: Mapping[str, Frets] | None = None,
 ) -> Harmony:
-    """power — с перегрузом: вместо полных аккордов пауэр-аккорды (основной тон + квинта)."""
+    """power — с перегрузом: вместо полных аккордов пауэр-аккорды (основной тон + квинта).
+
+    pins — аппликатуры, которые игрок выбрал сам: имя аккорда на диаграмме → лады по струнам.
+    """
     timeline = ctx.timeline(level)
     chords = [Chord(c.chord.root, "5") if power else c.chord for c in timeline]
-    voicings = choose_voicings(chords, instrument, level)
     names = [_shape_name(chord, instrument, ctx.key) for chord in chords]
-    return Harmony(timeline, voicings, names, chords)
+    options = {chord: playable_voicings(chord, instrument, level) for chord in set(chords)}
+    draft = Harmony(timeline, [], names, chords, options)
+    seconds = [ctx.seconds(c.end - c.start) for c in timeline]
+    voicings = choose_voicings(
+        chords, instrument, level, seconds, ctx.smooth, draft.pinned(pins or {})
+    )
+    return Harmony(timeline, voicings, names, chords, options)
 
 
 def _event_times(ctx: Context, slots: Sequence[int], timeline: Sequence[StepChord]) -> list[int]:
@@ -531,9 +577,10 @@ _TREBLE_SHARE = 0.7
 _REPEAT_SHARE = 0.4
 # Столько нот мимо аккорда — это уже мелодия (рифф, соло): её играем нота в ноту.
 _LINE_SHARE = 0.3
-# Насколько важнее попасть аппликатурой в ноты записи, чем взять самую удобную; уверенность
-# растёт с числом нот на аккорд — по одной-двум нотам позицию на грифе не угадать.
-_REGISTER_W = 8.0
+# Насколько важно попасть аппликатурой в ноты записи: это довод в пользу позиции на грифе, но
+# не важнее удобства руки. Уверенность растёт с числом нот на аккорд — по одной-двум нотам
+# позицию не угадать.
+_REGISTER_W = 5.0
 _EVIDENCE = 3.0
 _UP_STRINGS = 3  # удар вверх задевает три тонкие струны
 
@@ -629,33 +676,56 @@ def _register_fit(
 
 
 def recorded_harmony(
-    groups: Sequence[_Group], h: Harmony, instrument: Instrument, level: Difficulty
+    ctx: Context,
+    groups: Sequence[_Group],
+    h: Harmony,
+    instrument: Instrument,
+    level: Difficulty,
+    pins: Mapping[str, Frets] | None = None,
 ) -> Harmony:
     """Аппликатуры там, где на грифе звучит запись, а не просто самые удобные.
 
-    Для каждого аккорда перебираем позиции по всему грифу и выбираем ту, что берёт больше
-    услышанных нот той же высотой; переезды руки между аккордами по-прежнему стоят дорого.
+    У каждого аккорда одна форма на всю партию. Довод за позицию — сколько услышанных нот
+    аккорда она берёт той же высотой; против — неудобная форма и переезды руки между
+    аккордами, которые в записи идут подряд.
     """
     at = _segment_index(h.timeline)
-    heard: list[list[tuple[int, float]]] = [[] for _ in h.timeline]
+    heard: dict[Chord, list[tuple[int, float]]] = {}
+    sounding: set[int] = set()
     for group in groups:
         segment = at(group.start)
         if segment is not None:
+            sounding.add(segment)
             pairs = zip(group.pitches, group.loudness, strict=True)
-            heard[segment].extend((pitch, loud / 100) for pitch, loud in pairs)
-    options: list[tuple[Voicing, ...]] = []
-    costs: list[list[float]] = []
-    for chord, notes in zip(h.chords, heard, strict=True):
-        # Где гитара молчит, позицию не выбираем — там остаётся удобная аппликатура, и она
-        # не тянет руку из той позиции, где гитара играет.
-        candidates = neck_voicings(chord, instrument, level, MAX_FRET[level]) if notes else ()
+            heard.setdefault(h.chords[segment], []).extend((p, loud / 100) for p, loud in pairs)
+    pinned = h.pinned(pins or {})
+    count: dict[Chord, int] = {}
+    for segment in sounding:
+        count[h.chords[segment]] = count.get(h.chords[segment], 0) + 1
+    options: dict[Chord, Sequence[Voicing]] = {}
+    own: dict[Chord, list[float]] = {}
+    for chord, notes in heard.items():
+        fixed = pinned_voicing(chord, instrument, level, pinned.get(chord))
+        options[chord] = (
+            (fixed,) if fixed else neck_voicings(chord, instrument, level, MAX_FRET[level])
+        )
         trust = _REGISTER_W * min(1.0, sum(w for _, w in notes) / _EVIDENCE)
-        fits = [_register_fit(v, notes, instrument) for v in candidates]
-        options.append(candidates)
-        costs.append([v.cost + trust * (1 - fit) for v, fit in zip(candidates, fits, strict=True)])
-    chosen = best_path(options, costs)
-    voicings = [new or old for new, old in zip(chosen, h.voicings, strict=True)]
-    return Harmony(h.timeline, voicings, h.names, h.chords)
+        own[chord] = [
+            (v.cost + trust * (1 - _register_fit(v, notes, instrument))) * count[chord]
+            for v in options[chord]
+        ]
+    # Смены считаем только там, где гитара играет оба аккорда подряд: где она молчит, рука
+    # свободна, и такой аккорд не должен тянуть её к себе.
+    changes: dict[tuple[Chord, Chord], float] = {}
+    for a, b in pairwise(sorted(sounding)):
+        pair = (h.chords[a], h.chords[b])
+        if ctx.smooth and b == a + 1 and pair[0] != pair[1]:
+            spans = (h.timeline[a], h.timeline[b])
+            shortest = min(ctx.seconds(item.end - item.start) for item in spans)
+            changes[pair] = changes.get(pair, 0.0) + change_weight(shortest)
+    chosen = assign_voicings(options, own, changes, level)
+    voicings = [chosen.get(c, old) for c, old in zip(h.chords, h.voicings, strict=True)]
+    return Harmony(h.timeline, voicings, h.names, h.chords, {**h.options, **options})
 
 
 def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h: Harmony) -> str:
@@ -744,7 +814,11 @@ def _stroke_strings(
 
 
 def original_part(
-    ctx: Context, instrument: Instrument, level: Difficulty, h: Harmony
+    ctx: Context,
+    instrument: Instrument,
+    level: Difficulty,
+    h: Harmony,
+    pins: Mapping[str, Frets] | None = None,
 ) -> tuple[list[TabBeat], Harmony]:
     """Партия «как в записи»: ритм и ноты гитары оригинала, разложенные по аккордам.
 
@@ -762,7 +836,7 @@ def original_part(
     if not groups:
         return [], h
     if level != "easy":  # на «легко» — самые удобные аппликатуры, позиция записи не важна
-        h = recorded_harmony(groups, h, instrument, level)
+        h = recorded_harmony(ctx, groups, h, instrument, level, pins)
     at = _segment_index(h.timeline)
     texture = {bar: _texture(items, at, h) for bar, items in per_bar.items() if items}
     if level == "easy":  # на «легко» в бое — только удары на доли
