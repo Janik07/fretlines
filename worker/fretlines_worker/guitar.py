@@ -24,8 +24,14 @@ _KEYS_SHARE = 0.12
 # гитаре, поэтому порог опускаем, пока нот слишком мало. Ниже 0.3/0.2 — уже шум (проверено
 # на записях: доля нот, попадающих в аккорд, держится ~0.8 и падает ниже этих порогов).
 _THRESHOLDS = ((0.5, 0.3), (0.4, 0.25), (0.35, 0.22), (0.3, 0.2))
-_ENOUGH_PER_SECOND = 4.0
+# Опускаем порог, только когда нот совсем мало. Сверка с GuitarSet (scripts/guitarset_notes_bench):
+# при «достаточно — 4 ноты в секунду» порог падал и на обычных неспешных соло, и каждая
+# четвёртая найденная нота была лишней; при 2 — точность на соло 0.76 → 0.83 без потери полноты.
+_ENOUGH_PER_SECOND = 2.0
 _MIN_AMPLITUDE = 0.18
+# Ноты тише этой доли от громких — чаще призвуки и соседние инструменты, чем игра
+# (на GuitarSet 0.6 вместо 0.5: точность 0.76 → 0.79, общая оценка F1 не падает).
+_LOUD_SHARE = 0.6
 
 
 def _rms(audio: NDArray[np.float32]) -> float:
@@ -53,7 +59,7 @@ def clean(events: list[NoteEvent]) -> list[NoteEvent]:
     if not events:
         return []
     loud = float(np.percentile([e.amplitude for e in events], 90))
-    kept = [e for e in events if e.amplitude >= max(_MIN_AMPLITUDE, 0.5 * loud)]
+    kept = [e for e in events if e.amplitude >= max(_MIN_AMPLITUDE, _LOUD_SHARE * loud)]
     kept.sort(key=lambda e: e.start)
     starts = [e.start for e in kept]
     out: list[NoteEvent] = []

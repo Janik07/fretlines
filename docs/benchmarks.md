@@ -52,4 +52,20 @@ The script runs the same note recognition the song analysis uses (Basic Pitch pl
 the GuitarSet microphone recordings. A note counts as found when the pitch is the same and the
 onset is within 50 ms.
 
-Results: see the table in the README once the run has been recorded there.
+All 360 recordings (accompaniment and solo), precision / recall / F1:
+
+| | Before (v0.2.0) | After |
+|---|---|---|
+| Accompaniment | 0.758 / 0.748 / 0.753 | 0.794 / 0.718 / 0.754 |
+| Solo | 0.761 / 0.918 / 0.832 | 0.851 / 0.907 / 0.878 |
+| All | 0.759 / 0.794 / 0.776 | 0.811 / 0.769 / 0.789 |
+
+Precision is the share of found notes that are real; recall is the share of real notes that
+were found. "After" changes two cleanup settings chosen on this benchmark: the detection
+threshold is lowered only when a track has fewer than 2 notes per second (it used to be 4), and
+notes quieter than 0.6 of the loud ones are dropped (it used to be 0.5). Fewer stray notes, at
+the cost of some quiet real ones.
+
+How to read these numbers: GuitarSet is a clean microphone recording of one guitar. In a real
+song the guitar first has to be separated from the mix, so expect lower figures there. This
+benchmark measures the note model and its cleanup, not the whole pipeline.

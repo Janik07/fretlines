@@ -81,6 +81,9 @@ accompaniment recordings):
 | Hand position within 2 frets of the guitarist's | 45.3 % | 63.6 % |
 | Shapes no hand can hold | 120 | 0 |
 
+Note recognition on the same dataset (360 clean solo-guitar recordings): F1 0.79, precision
+0.81, recall 0.77. In a full song the guitar is first separated from the mix, so expect less.
+
 How the numbers are measured and how to read them: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Getting started
