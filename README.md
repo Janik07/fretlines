@@ -40,6 +40,14 @@ Everything runs on your own computer: songs and analyses never leave it.
   are laid onto the chord shapes the guitarist holds, at the neck position where the recording
   sounds. Strums are played as whole chords, picking follows the strings of the shape, and
   riffs and solos are played note for note.
+- **Chord shapes a guitarist would use:** chords come from a library of real shapes (open
+  chords, E- and A-shape barre chords, small shapes on the top strings), with finger numbers
+  and the barre on the diagrams. Each chord keeps one shape for the whole part, and the
+  shapes are chosen together so that changes are easy: short hand moves, fingers that stay
+  in place, more care where chords change fast. Click a diagram to take the chord another
+  way.
+- **Fix the analysis by hand:** click a chord on the chart and type the right one, for this
+  spot or for the whole song. Parts and shapes are recalculated at once.
 - **Band setup:** 1–4 players with Solo / Duo / Trio / Quartet presets. Each player has their
   own instrument (acoustic, electric or bass guitar), tuning, capo and difficulty (easy, medium
   or full).
@@ -60,6 +68,20 @@ Everything runs on your own computer: songs and analyses never leave it.
 - **Export:** PDF (print), Guitar Pro (.gp), MIDI and alphaTex.
 
 ![Home page: upload a file or paste a link](docs/screens/home.png)
+
+## Checked against real guitarists
+
+Chord shapes are compared with [GuitarSet](https://zenodo.org/records/3371780), where the
+string and fret of every note played by six guitarists are annotated (2037 chords from 180
+accompaniment recordings):
+
+| | v0.2.0 | Now |
+|---|---|---|
+| Strings where our fret equals the guitarist's | 30.5 % | 47.6 % |
+| Hand position within 2 frets of the guitarist's | 45.3 % | 63.6 % |
+| Shapes no hand can hold | 120 | 0 |
+
+How the numbers are measured and how to read them: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Getting started
 
