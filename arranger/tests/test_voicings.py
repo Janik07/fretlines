@@ -175,3 +175,14 @@ def test_pinned_shape_is_kept() -> None:
     assert voicings[3].frets == shape("xx3211")
     assert voicings[1] is not None
     assert voicings[1].frets == shape("320003")
+
+
+def test_drop_d_mixes_its_own_shapes_with_the_library() -> None:
+    drop_d = make_instrument("acoustic", "drop-d")
+
+    def best(chord: str) -> tuple[int | None, ...]:
+        return chord_voicings(parse_chord(chord), drop_d, "medium")[0].frets
+
+    assert best("Em") == shape("222000")  # свой аккорд строя: три струны одним ладом
+    assert best("Bm") == shape("x24432")  # шестая струна не нужна — обычное баррэ
+    assert best("C") == shape("x32010")

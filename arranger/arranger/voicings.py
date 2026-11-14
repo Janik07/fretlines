@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from itertools import product
+from itertools import pairwise, product
 
 from arranger.instruments import Instrument
 from arranger.model import ChordSpan, Difficulty
@@ -247,6 +247,14 @@ def _library(chord: Chord, instrument: Instrument, level: Difficulty) -> dict[Fr
 
 # ─── Перебор для редких строев и аккордов ──────────────────────────────────
 
+_STANDARD_STEPS = (5, 4, 5, 5, 5)  # интервалы между соседними струнами, от тонкой к толстой
+
+
+def _standard_intervals(instrument: Instrument) -> bool:
+    """Струны настроены как в стандартном строе (сам он, строи ниже целиком, каподастр)."""
+    strings = instrument.tuning.strings
+    return tuple(a - b for a, b in pairwise(strings)) == _STANDARD_STEPS
+
 
 def _hand(frets: Frets) -> tuple[Frets, int | None] | None:
     """Пальцы для аппликатуры и лад баррэ; None — рукой так не взять.
@@ -292,7 +300,7 @@ def _cost(
 ) -> float:
     fretted = [f for f in frets if f]
     played = [i for i, f in enumerate(frets) if f is not None]
-    cost = _UNUSUAL + 0.3 * fingers
+    cost = 0.3 * fingers
     if fretted:
         cost += _POSITION_W[level] * max(0, min(fretted) - 1)
         cost += 0.35 * (max(fretted) - min(fretted))
@@ -310,8 +318,13 @@ def _cost(
     return cost
 
 
-def _generated(chord: Chord, instrument: Instrument, level: Difficulty) -> dict[Frets, Voicing]:
-    """Перебор окон по 3–4 лада: соседние струны подряд, глушить можно только крайние."""
+def _generated(
+    chord: Chord, instrument: Instrument, level: Difficulty, penalty: float
+) -> dict[Frets, Voicing]:
+    """Перебор окон по 3–4 лада: соседние струны подряд, глушить можно только крайние.
+
+    penalty — надбавка к цене: в стандартном строе форма не из библиотеки — редкость.
+    """
     n = instrument.strings
     pcs = chord.pitch_classes
     span = SPAN[level]
@@ -367,7 +380,7 @@ def _generated(chord: Chord, instrument: Instrument, level: Difficulty) -> dict[
                             continue
                         fingers, barre = hand
                         used = len({f for f in fingers if f})
-                        cost = _cost(frets, barre, used, chord, instrument, level)
+                        cost = penalty + _cost(frets, barre, used, chord, instrument, level)
                         found[frets] = Voicing(frets, round(cost, 4), barre, fingers)
     return found
 
@@ -377,7 +390,16 @@ def chord_voicings(
     chord: Chord, instrument: Instrument, level: Difficulty, limit: int = 6
 ) -> tuple[Voicing, ...]:
     """Лучшие аппликатуры аккорда — от самой удобной."""
-    found = _library(chord, instrument, level) or _generated(chord, instrument, level)
+    found = _library(chord, instrument, level)
+    if not _standard_intervals(instrument):
+        # Библиотека собрана для стандартного строя (и его сдвигов): в Drop D или Open G её
+        # формы подходят лишь местами, а у строя есть свои удобные аккорды с открытыми струнами.
+        # Форма из библиотеки всё равно надёжнее, поэтому у перебора остаётся надбавка.
+        for frets, voicing in _generated(chord, instrument, level, _UNUSUAL).items():
+            if frets not in found or voicing.cost < found[frets].cost:
+                found[frets] = voicing
+    elif not found:
+        found = _generated(chord, instrument, level, _UNUSUAL)
     return tuple(sorted(found.values(), key=lambda v: (v.cost, v.frets.count(None)))[:limit])
 
 
