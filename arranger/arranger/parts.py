@@ -585,6 +585,14 @@ _LINE_SHARE = 0.3
 _REGISTER_W = 5.0
 _EVIDENCE = 3.0
 _UP_STRINGS = 3  # удар вверх задевает три тонкие струны
+# Куда тянется рука на свободных нотах (рифф, соло): лад и вес. В середину грифа, как играют
+# гитаристы (GuitarSet: треть нот соло на 6–8 ладах, у порожка — десятая часть); на «легко» —
+# к порожку, там проще. Подобрано на половине записей GuitarSet и проверено на другой.
+_LINE_HOME: dict[Difficulty, tuple[int, float]] = {
+    "easy": (0, 0.04),
+    "medium": (7, 0.15),
+    "full": (7, 0.15),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -609,12 +617,20 @@ def original_groups(ctx: Context, instrument: Instrument, level: Difficulty) -> 
         else:
             clusters.append([note])
 
-    slots: dict[int, dict[int, int]] = {}  # шаг → высота → громкость
-    ends: dict[int, int] = {}
+    # На один шаг сетки могут прийтись несколько ударов подряд (быстрый рифф, форшлаг, шестнадцатые
+    # на сетке восьмых). Это не созвучие: оставляем удар, который ближе к шагу, — иначе мелодия
+    # склеивается в «аккорды» из соседних нот.
+    by_step: dict[int, list[list[Note]]] = {}
     for cluster in clusters:
         start = round(cluster[0].start * STEPS_PER_BEAT / grid) * grid
-        if not 0 <= start < ctx.total_steps:
-            continue
+        if 0 <= start < ctx.total_steps:
+            by_step.setdefault(start, []).append(cluster)
+
+    slots: dict[int, dict[int, int]] = {}  # шаг → высота → громкость
+    ends: dict[int, int] = {}
+    for start, struck in by_step.items():
+        main = min(struck, key=lambda c: abs(c[0].start * STEPS_PER_BEAT - start))
+        cluster = [note for other in struck if _same_stroke(main, other) for note in other]
         for note in cluster:
             end = round(note.end * STEPS_PER_BEAT / grid) * grid
             end = min(max(start + grid, end), ctx.total_steps)
@@ -642,6 +658,21 @@ def original_groups(ctx: Context, instrument: Instrument, level: Difficulty) -> 
             _Group(start, max(end, start + 1), pitches, tuple(slots[start][p] for p in pitches))
         )
     return groups
+
+
+def _same_stroke(main: Sequence[Note], other: Sequence[Note]) -> bool:
+    """Тот же удар по струнам, только растянутый: начался рядом и не спорит с нотами первого.
+
+    Ноты в тоне или полутоне друг от друга на одном ударе не берут — это соседние ноты мелодии.
+    Две одиночные ноты подряд — тоже мелодия (форшлаг, легато), а не удар по двум струнам.
+    """
+    if other is main:
+        return True
+    if abs(other[0].start - main[0].start) > 2 * _STRUM_SPREAD:
+        return False
+    if len(main) == 1 and len(other) == 1 and main[0].pitch != other[0].pitch:
+        return False
+    return all(a.pitch == b.pitch or abs(a.pitch - b.pitch) > 2 for a in main for b in other)
 
 
 def _thin(group: _Group, voices: int) -> tuple[int, ...]:
@@ -756,7 +787,7 @@ def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h
         segment = segment_at(group.start)
         for pitch in group.pitches:
             total += 1
-            outside += segment is None or pitch % 12 not in h.timeline[segment].chord.pitch_classes
+            outside += segment is None or pitch % 12 not in h.chords[segment].pitch_classes
     return "line" if outside >= _LINE_SHARE * total else "pick"
 
 
@@ -856,13 +887,18 @@ def original_part(
         voicing = h.voicings[segment] if segment is not None else None
         kind = texture[group.start // ctx.bar_steps]
         time = group.start / STEPS_PER_BEAT
-        if voicing is None or (kind == "line" and len(group.pitches) < _STRUM_NOTES):
+        shape = voicing.notes(instrument) if voicing is not None else ()
+        snapped = _snap(group, shape)
+        # В мелодии (рифф, соло) созвучие — удар по аккорду, только если аппликатура берёт почти
+        # все его ноты; иначе это двойные ноты самой мелодии, и аккорд их подменять не должен.
+        chordal = len(group.pitches) >= _STRUM_NOTES and len(snapped) >= len(group.pitches) - (
+            len(group.pitches) > _STRUM_NOTES
+        )
+        if voicing is None or (kind == "line" and not chordal):
             events.append((time, _thin(group, _ORIGINAL_VOICES[level]), None))
             strokes.append(None)
             played.append(group)
             continue
-        shape = voicing.notes(instrument)
-        snapped = _snap(group, shape)
         stroke: Stroke | None = None
         if kind == "strum" or len(group.pitches) >= _STRUM_NOTES:
             # Рука ходит вверх-вниз по сетке уровня: вниз — на долю (или восьмую), вверх — между.
@@ -884,7 +920,15 @@ def original_part(
         strokes.append(stroke)
         played.append(group)
 
-    fingered = finger_events(events, instrument, span=SPAN[level], max_fret=MAX_FRET[level])
+    home, weight = _LINE_HOME["easy" if instrument.kind == "bass" else level]
+    fingered = finger_events(
+        events,
+        instrument,
+        span=SPAN[level],
+        max_fret=MAX_FRET[level],
+        fret_weight=weight,
+        home=home,
+    )
     beats: list[TabBeat] = []
     last_segment: int | None = None
     for group, stroke, option in zip(played, strokes, fingered, strict=True):

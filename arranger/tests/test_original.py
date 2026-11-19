@@ -143,3 +143,85 @@ def test_alphatex_writes_live_tempo_and_lyrics(song: Transcription) -> None:
     # «то-» и «поль» спеты на одной ноте — подпись одна, слова через пробел.
     assert text.count("lyrics ") == 2
     assert 'lyrics "\\u0442\\u043e- \\u043f\\u043e\\u043b\\u044c"' in text
+
+
+def _line(song: Transcription, notes: list[Note], level: str, **player: str) -> list[list[int]]:
+    """Высоты первого такта партии «как в записи» по событиям."""
+    setup = replace(_player(level), **player)  # type: ignore[arg-type]
+    part = arrange(replace(song, guitar=tuple(notes), guitar_source="guitar"), [setup]).parts[0]
+    return [[n.pitch for n in b.notes] for b in part.beats if b.start < 4 * STEPS_PER_BEAT]
+
+
+def test_fast_run_on_the_eighth_grid_stays_a_line(song: Transcription) -> None:
+    # Гамма шестнадцатыми на уровне с сеткой восьмых: соседние ноты не склеиваются в двузвучия.
+    run = [60, 62, 64, 65, 67, 69, 71, 72, 74, 72, 71, 69, 67, 65, 64, 62]
+    notes = [Note(i * 0.25, 0.2, pitch, 90) for i, pitch in enumerate(run)]
+    assert _line(song, notes, "medium") == [[pitch] for pitch in run[::2]]
+
+
+def test_grace_note_does_not_turn_into_a_chord(song: Transcription) -> None:
+    # Форшлаг: A#4 сразу за A4, обе ноты приходятся на одну шестнадцатую.
+    notes = [
+        Note(i * 0.5, 0.4, pitch, 90) for i, pitch in enumerate((62, 65, 69, 71, 69, 65, 62, 59))
+    ]
+    notes += [Note(1.02, 0.08, 69, 90), Note(1.11, 0.12, 70, 90)]
+    played = _line(song, notes, "full")
+    assert all(len(pitches) == 1 for pitches in played)
+
+
+def test_rolled_chord_is_still_one_stroke(song: Transcription) -> None:
+    # Медленный удар: бас и середина, а через 0.15 доли — верхние струны того же аккорда.
+    notes = [Note(0.0, 0.9, 48, 100), Note(0.02, 0.9, 52, 100)]
+    notes += [Note(0.15 + k * 0.02, 0.9, pitch, 100) for k, pitch in enumerate((55, 60, 64))]
+    played = _line(song, notes, "medium")
+    assert len(played) == 1
+    assert len(played[0]) >= 4
+
+
+def test_riff_over_power_chords_keeps_its_thirds(song: Transcription) -> None:
+    # С перегрузом рука держит пауэр-аккорд (C и G), а в риффе звучат терции — их не выбрасываем.
+    riff = [60, 64, 67, 64, 60, 64, 67, 64]
+    notes = [Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(riff)]
+    played = _line(song, notes, "full", kind="electric", tone="drive")
+    assert played == [[pitch] for pitch in riff]
+
+
+def test_double_stops_of_a_melody_are_not_replaced_by_the_chord(song: Transcription) -> None:
+    # Мелодия мимо аккорда C и трезвучие Dm посреди неё: играем его, а не аппликатуру C.
+    notes = [Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate((62, 65, 69, 71))]
+    notes += [Note(2.0 + k * 0.01, 0.45, pitch, 90) for k, pitch in enumerate((62, 65, 69))]
+    notes += [Note(3.0, 0.45, 71, 90), Note(3.5, 0.45, 65, 90)]
+    played = _line(song, notes, "full")
+    assert played[4] == [62, 65, 69]
+
+
+def test_notes_under_the_hand_are_played_without_moving_it() -> None:
+    guitar = make_instrument("electric", "standard", 0)
+    # A4 B4 C5 D5 быстро: всё берётся в одной позиции, без открытых струн и прыжков.
+    line = [(i * 0.25, (pitch,), None) for i, pitch in enumerate((69, 71, 72, 74, 72, 71, 69))]
+    result = finger_events(line, guitar, span=4, home=7, fret_weight=0.15)
+    frets = [fret for option in result if option for _, fret in option]
+    assert min(frets) > 0
+    assert max(frets) - min(frets) < 4
+
+
+def test_open_string_does_not_let_the_hand_jump_for_free() -> None:
+    guitar = make_instrument("electric", "standard", 0)
+    high = ((2, 12), (1, 12))  # рука на 12-м ладу
+    events = [(0.0, (71, 76), high), (0.25, (64,), ((1, 0),)), (0.5, (67,), None)]
+    result = finger_events(events, guitar, span=4)
+    assert result[2] == ((3, 12),)  # G4 под рукой на третьей струне, а не 3-й лад первой
+
+
+def test_full_level_plays_lines_in_the_middle_of_the_neck(song: Transcription) -> None:
+    # Мелодия мимо аккорда: на «полностью» — в середине грифа, на «легко» — у порожка.
+    tune = [57, 59, 60, 62, 64, 62, 60, 59]
+    notes = tuple(Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(tune))
+    tx = replace(song, guitar=notes, guitar_source="guitar")
+
+    def frets(level: str) -> list[int]:
+        part = arrange(tx, [_player(level)]).parts[0]
+        return [n.fret for b in part.beats for n in b.notes]
+
+    assert min(frets("full")) >= 4
+    assert max(frets("easy")) <= 3

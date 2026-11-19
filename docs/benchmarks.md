@@ -42,6 +42,44 @@ How to read these numbers:
 - The comparison is per string, and a guitarist may play only part of a shape, so the agreement
   figure understates how often the shape is the same.
 
+## Tabs: do we put the notes where guitarists do?
+
+```bash
+python scripts/guitarset_tab_bench.py --level full
+```
+
+The script feeds the annotated notes and chords into the "as recorded" part, as if note
+recognition were perfect, and looks up every note of the guitarist in our tab. "Kept" is the
+share of their notes that reach the tab at the same pitch and time; "same position" is the
+share of those that sit on the same string and fret. All 360 recordings, 62,476 notes.
+
+| | Before | After |
+|---|---|---|
+| Solo, level `full`: kept / same position | 85.2 % / 42.1 % | 85.0 % / 60.7 % |
+| Solo, level `medium`: kept / same position | 67.8 % / 43.3 % | 66.8 % / 56.6 % |
+| Accompaniment, level `full`: kept / same position | 77.3 % / 72.0 % | 78.1 % / 72.4 % |
+| Accompaniment, level `medium`: kept / same position | 63.1 % / 64.1 % | 62.7 % / 63.9 % |
+
+What changed in "After":
+
+- The hand now covers four frets. Before, every change of fret counted as a move of the hand,
+  even to a note under the next finger, so lines drifted to open strings and the nut.
+- An open string no longer lets the hand jump to the other end of the neck for free, and it
+  costs a little when the hand is above the third fret.
+- Free notes (riffs and solos) are drawn towards the middle of the neck (fret 7) instead of
+  the nut: GuitarSet players take a third of their solo notes on frets 6-8 and a tenth near
+  the nut. The two weights were chosen on every second recording and checked on the rest
+  (60.7 % same position on the held-out half, the same as on all recordings).
+- Notes that follow each other within one grid step are no longer stacked into a chord, a
+  riff over power chords keeps its thirds, and a double stop in a melody is not replaced by
+  the chord shape.
+
+How to read these numbers: the input is the annotation, not our note recognition, so this
+measures only the layout on the neck. "Kept" is below 100 % by design: in strummed bars the
+part plays the whole chord shape instead of the few strings that were heard, and the levels
+below `full` use an eighth-note grid. A different string for the same note is not an error in
+itself; the figure shows how close the default is to what players choose.
+
 ## Notes: how well do we hear the guitar?
 
 ```bash
