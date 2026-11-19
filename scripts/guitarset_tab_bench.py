@@ -2,7 +2,7 @@
 
 В партию «как в записи» подаются ноты из разметки (как если бы распознавание было идеальным)
 и аккорды из разметки. Для каждой ноты гитариста ищем ту же ноту в наших табах и смотрим,
-на той же ли она струне и ладу. Так меряется сама раскладка по грифу, без ошибок слуха.
+на той же ли она струне и ладу; отдельно считаем ноты табов, которых гитарист не играл. Так меряется сама раскладка по грифу, без ошибок слуха.
 
 Данные (CC BY 4.0, в репозиторий не входят) — см. docs/benchmarks.md:
     .bench/guitarset/annotation/*.jams
@@ -92,7 +92,7 @@ def main() -> None:
     )
     report = {}
     for kind, title in (("solo", "Соло"), ("comp", "Аккомпанемент")):
-        notes = hits = same = 0
+        notes = hits = same = ours = 0
         for path in sorted(ANNOTATIONS.glob(f"*_{kind}.jams")):
             tx, truth, beat, offset = load(path)
             part = arrange(tx, [player]).parts[0]
@@ -104,16 +104,19 @@ def main() -> None:
             # Ноты встают на сетку шестнадцатых: допуск — полшага сетки и немного сверху.
             found_hits, found_same = compare(found, truth, max(0.06, beat / 8 + 0.035))
             notes += len(truth)
+            ours += len(found)
             hits += found_hits
             same += found_same
         report[kind] = {
             "notes": notes,
             "kept": round(hits / max(notes, 1), 3),
+            "extra": round(1 - hits / max(ours, 1), 3),
             "same_position": round(same / max(hits, 1), 3),
         }
         print(
             f"{title}: нот гитариста {notes}, дошло до табов {hits / max(notes, 1):.1%}, "
-            f"из них на той же струне и ладу {same / max(hits, 1):.1%}"
+            f"из них на той же струне и ладу {same / max(hits, 1):.1%}; "
+            f"нот в табах, которых гитарист не играл, {1 - hits / max(ours, 1):.1%}"
         )
     if args.json:
         args.json.write_text(json.dumps({"level": args.level, **report}, indent=2))

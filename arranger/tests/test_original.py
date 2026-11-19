@@ -225,3 +225,10 @@ def test_full_level_plays_lines_in_the_middle_of_the_neck(song: Transcription) -
 
     assert min(frets("full")) >= 4
     assert max(frets("easy")) <= 3
+
+
+def test_melody_with_repeated_notes_is_not_strummed(song: Transcription) -> None:
+    # Мелодия повторяет ноты, но ходит мимо аккорда C: это не бой, слышный верхней струной.
+    tune = [64, 64, 64, 62, 62, 62, 65, 65]
+    notes = [Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(tune)]
+    assert _line(song, notes, "full") == [[pitch] for pitch in tune]

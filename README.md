@@ -81,8 +81,9 @@ accompaniment recordings):
 | Hand position within 2 frets of the guitarist's | 45.3 % | 63.6 % |
 | Shapes no hand can hold | 120 | 0 |
 
-Riffs and solos in the "as recorded" part (16,861 solo notes): 61 % land on the same string
-and fret the guitarist used, up from 42 %.
+Riffs and solos in the "as recorded" part (16,861 solo notes, fed from the annotation): 91 %
+of the guitarist's notes reach the tab (85 % before), 11 % of the tab notes are extra (43 %
+before), and 62 % land on the same string and fret the guitarist used (42 % before).
 
 Note recognition on the same dataset (360 clean solo-guitar recordings): F1 0.79, precision
 0.81, recall 0.77. In a full song the guitar is first separated from the mix, so expect less.

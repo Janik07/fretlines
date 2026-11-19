@@ -50,15 +50,16 @@ python scripts/guitarset_tab_bench.py --level full
 
 The script feeds the annotated notes and chords into the "as recorded" part, as if note
 recognition were perfect, and looks up every note of the guitarist in our tab. "Kept" is the
-share of their notes that reach the tab at the same pitch and time; "same position" is the
-share of those that sit on the same string and fret. All 360 recordings, 62,476 notes.
+share of their notes that reach the tab at the same pitch and time; "extra" is the share of
+our tab notes that the guitarist did not play; "same position" is the share of kept notes that
+sit on the same string and fret. All 360 recordings, 62,476 notes.
 
-| | Before | After |
+| Kept / extra / same position | Before | After |
 |---|---|---|
-| Solo, level `full`: kept / same position | 85.2 % / 42.1 % | 85.0 % / 60.7 % |
-| Solo, level `medium`: kept / same position | 67.8 % / 43.3 % | 66.8 % / 56.6 % |
-| Accompaniment, level `full`: kept / same position | 77.3 % / 72.0 % | 78.1 % / 72.4 % |
-| Accompaniment, level `medium`: kept / same position | 63.1 % / 64.1 % | 62.7 % / 63.9 % |
+| Solo, level `full` | 85.2 % / 43.2 % / 42.1 % | 91.2 % / 11.0 % / 61.5 % |
+| Solo, level `medium` | 67.8 % / 49.6 % / 43.3 % | 72.3 % / 18.0 % / 58.4 % |
+| Accompaniment, level `full` | 77.3 % / 51.0 % / 72.0 % | 78.3 % / 49.7 % / 72.4 % |
+| Accompaniment, level `medium` | 63.1 % / 53.7 % / 64.1 % | 62.9 % / 51.0 % / 63.8 % |
 
 What changed in "After":
 
@@ -69,15 +70,20 @@ What changed in "After":
 - Free notes (riffs and solos) are drawn towards the middle of the neck (fret 7) instead of
   the nut: GuitarSet players take a third of their solo notes on frets 6-8 and a tenth near
   the nut. The two weights were chosen on every second recording and checked on the rest
-  (60.7 % same position on the held-out half, the same as on all recordings).
+  (60.7 % same position on the held-out half, the same as on all recordings at that point).
+- A melody that repeats its notes is no longer taken for strumming. The rule "a strum of which
+  only the top string was heard" now also requires the top notes to be chord tones, with at
+  most three different ones per chord. Before, it turned such melodies into full chord
+  strokes; this is where most of the extra notes in solos came from.
 - Notes that follow each other within one grid step are no longer stacked into a chord, a
   riff over power chords keeps its thirds, and a double stop in a melody is not replaced by
   the chord shape.
 
 How to read these numbers: the input is the annotation, not our note recognition, so this
-measures only the layout on the neck. "Kept" is below 100 % by design: in strummed bars the
-part plays the whole chord shape instead of the few strings that were heard, and the levels
-below `full` use an eighth-note grid. A different string for the same note is not an error in
+measures only the layout on the neck. In accompaniment "extra" is high and "kept" is below
+100 % by design: in strummed bars the part plays the whole chord shape instead of the few
+strings that were heard (on a separated stem the model misses strings), and GuitarSet players
+often use other voicings than ours. The levels below `full` use an eighth-note grid. A different string for the same note is not an error in
 itself; the figure shows how close the default is to what players choose.
 
 ## Notes: how well do we hear the guitar?

@@ -577,6 +577,8 @@ _STRUM_BAR_SHARE = 0.6
 _TREBLE = 55
 _TREBLE_SHARE = 0.7
 _REPEAT_SHARE = 0.4
+_TOP_IN_CHORD = 0.9  # такая доля верхних нот — тоны аккорда
+_TOP_PITCHES = 3  # и столько разных верхних нот на один аккорд, не больше
 # Столько нот мимо аккорда — это уже мелодия (рифф, соло): её играем нота в ноту.
 _LINE_SHARE = 0.3
 # Насколько важно попасть аппликатурой в ноты записи: это довод в пользу позиции на грифе, но
@@ -664,13 +666,10 @@ def _same_stroke(main: Sequence[Note], other: Sequence[Note]) -> bool:
     """Тот же удар по струнам, только растянутый: начался рядом и не спорит с нотами первого.
 
     Ноты в тоне или полутоне друг от друга на одном ударе не берут — это соседние ноты мелодии.
-    Две одиночные ноты подряд — тоже мелодия (форшлаг, легато), а не удар по двум струнам.
     """
     if other is main:
         return True
     if abs(other[0].start - main[0].start) > 2 * _STRUM_SPREAD:
-        return False
-    if len(main) == 1 and len(other) == 1 and main[0].pitch != other[0].pitch:
         return False
     return all(a.pitch == b.pitch or abs(a.pitch - b.pitch) > 2 for a in main for b in other)
 
@@ -780,6 +779,7 @@ def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h
         len(tops) >= 5
         and len(tops) >= _TREBLE_SHARE * len(items)
         and repeats >= _REPEAT_SHARE * (len(tops) - 1)
+        and _held_tops(tops, h)
     ):
         return "strum"
     outside = total = 0
@@ -789,6 +789,21 @@ def _texture(items: Sequence[_Group], segment_at: Callable[[int], int | None], h
             total += 1
             outside += segment is None or pitch % 12 not in h.chords[segment].pitch_classes
     return "line" if outside >= _LINE_SHARE * total else "pick"
+
+
+def _held_tops(tops: Sequence[tuple[int | None, int]], h: Harmony) -> bool:
+    """Верхние ноты похожи на верхнюю струну боя: это тоны аккорда, и разных на аккорд мало.
+
+    Мелодия тоже повторяет ноты, но ходит по ступеням и мимо аккорда — её бой подменять не должен.
+    """
+    per_chord: dict[int | None, set[int]] = {}
+    inside = 0
+    for segment, pitch in tops:
+        per_chord.setdefault(segment, set()).add(pitch)
+        inside += segment is not None and pitch % 12 in h.timeline[segment].chord.pitch_classes
+    return inside >= _TOP_IN_CHORD * len(tops) and all(
+        len(pitches) <= _TOP_PITCHES for pitches in per_chord.values()
+    )
 
 
 def _without_stray_highs(items: list[_Group]) -> list[_Group]:
