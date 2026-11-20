@@ -232,3 +232,17 @@ def test_melody_with_repeated_notes_is_not_strummed(song: Transcription) -> None
     tune = [64, 64, 64, 62, 62, 62, 65, 65]
     notes = [Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(tune)]
     assert _line(song, notes, "full") == [[pitch] for pitch in tune]
+
+
+def test_chord_diagrams_up_the_neck_start_from_their_first_fret(song: Transcription) -> None:
+    # Перебор по C на восьмом ладу: диаграмма над табами рисуется от первого лада аппликатуры.
+    pattern = [60, 64, 67, 72, 67, 64] * 2
+    notes = tuple(Note(i * 0.5, 0.45, pitch, 90) for i, pitch in enumerate(pattern))
+    high = arrange(replace(song, guitar=notes, guitar_source="guitar"), [_player("full")])
+    shape = next(s for s in high.parts[0].shapes if s.name == "C")
+    first = min(f for f in shape.frets if f)
+    assert first >= 5
+    assert f"{{firstfret {first}}}" in to_alphatex(high, title="t")
+    # Открытым аккордам первый лад не нужен.
+    low = arrange(song, [PlayerSetup(id="p1", name="", roles=("rhythm",), difficulty="easy")])
+    assert "firstfret" not in to_alphatex(low, title="t")

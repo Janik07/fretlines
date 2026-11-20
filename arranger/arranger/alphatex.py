@@ -182,6 +182,9 @@ def bar_tempos(bar_seconds: Sequence[float], beats_per_bar: int, bars: int) -> l
     return tempos
 
 
+_DIAGRAM_FRETS = 5  # столько ладов в диаграмме аккорда над табами
+
+
 def _tuning(instrument: Instrument) -> str:
     names = " ".join(midi_name(p, flats=True) for p in instrument.tuning.strings)
     return f"\\tuning ({names}) {{ label {_text(instrument.tuning.label)} }}"
@@ -211,7 +214,12 @@ def part_to_alphatex(
         lines.append(f"\\capo {part.capo}")
     for shape in part.shapes:
         frets = " ".join("x" if f is None else str(f) for f in shape.frets)
-        lines.append(f"\\chord ({_text(shape.name)} {frets})")
+        # Диаграмма над табами — пять ладов от первого: аккорду выше по грифу задаём, с какого
+        # лада её рисовать, иначе точки вылезают из сетки на нотный стан.
+        fretted = [f for f in shape.frets if f]
+        high = bool(fretted) and max(fretted) > _DIAGRAM_FRETS
+        first = f" {{firstfret {min(fretted)}}}" if high else ""
+        lines.append(f"\\chord ({_text(shape.name)} {frets}){first}")
     bar_steps = beats_per_bar * STEPS_PER_BEAT
     bar_texts = _bars(part, bars, bar_steps, words)
     previous = tempos[0] if tempos else None
